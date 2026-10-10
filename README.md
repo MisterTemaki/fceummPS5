@@ -157,9 +157,9 @@ Send `NESFCEUmmPS5.elf` and open the icon again.
 The icon is the project's official art, `ps5/app/sce_sys/icon-source.png` (512x512): an NES pad under the "NES
 FCEUmm for PS5" title; `icon0.png` is the same image. To change the icon, replace `ps5/app/sce_sys/icon0.png`
 (512x512 PNG) and rebuild. The background -- the large image behind the icon when NES FCEUmm PS5 is selected on
-the home screen -- is drawn by `ps5/tools/make_art.py`: a pixel "NES" wordmark and "FCEUmm" over a retro
-perspective grid (`background-source.png`, 1920x1080), rendered at 3840x2160 and encoded to `pic0.dds`/`pic1.dds`
-as BC7 (bc7enc_rdo, as ps5-native-app-boilerplate's `tools/prepare-assets.sh --background` does). For another title ID:
+the home screen -- is the project's background art, `ps5/app/sce_sys/background-source.png` (3840x2160: an NES
+console, its box and pad under the "NES FCEUmm for PS5" title), encoded to `pic0.dds`/`pic1.dds` as BC7
+(bc7enc_rdo, as ps5-native-app-boilerplate's `tools/prepare-assets.sh --background` does). For another title ID:
 `make ps5 TITLE_ID=XXXX00000`.
 
 **Home-screen art:** ShadowMountPlus copies the art in `sce_sys` (icon, backgrounds, `param.json`) to
@@ -447,9 +447,8 @@ The build has three stages:
 3. `NESFCEUmmPS5.elf`, with the app folder built in.
 
 The data built into the app is made by scripts in `ps5/tools/`: `make_gamedb.py` (`data/nointro.tsv`, from
-libretro-database), `make_nesdb.py` (`data/nesdb.tsv`, from Mesen's `MesenNesDB.txt` and FCEUmm's own corrections),
-`make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources) and `make_art.py` (the home-screen
-background).
+libretro-database), `make_nesdb.py` (`data/nesdb.tsv`, from Mesen's `MesenNesDB.txt` and FCEUmm's own corrections)
+and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
 
 ## Source layout
 
@@ -544,9 +543,9 @@ binary is distributed with its complete source (`make dist` makes the zip).
 - **stb_image / stb_image_resize2 / stb_truetype** (Sean Barrett): public domain or MIT.
 - **UI fonts**, the same as PS5SX2's, in `ps5/frontend/assets/fonts/` with their licenses: Roboto Regular (Google,
   Apache 2.0), PromptFont (Yukari "Shinmera" Hafner, SIL OFL 1.1), Font Awesome Brands (Fonticons, Inc.; font
-  SIL OFL 1.1, icons CC BY 4.0). The background art uses Poppins Bold (Indian Type Foundry, SIL OFL 1.1).
-- **Icon and background:** the "NES FCEUmm for PS5" art chosen for the project (`ps5/app/sce_sys/icon-source.png`)
-  for the icon; original art made for this port (`ps5/tools/make_art.py`) for the home-screen background.
+  SIL OFL 1.1, icons CC BY 4.0).
+- **Icon and background:** the "NES FCEUmm for PS5" art chosen for the project (`ps5/app/sce_sys/icon-source.png`
+  for the icon, `ps5/app/sce_sys/background-source.png` for the home-screen background).
   Nintendo, NES, Famicom, Famicom Disk System and their logos are trademarks of Nintendo; PlayStation, PS5 and the
   PlayStation logo are trademarks of Sony Interactive Entertainment; this port is not affiliated with or endorsed
   by either.
