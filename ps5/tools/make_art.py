@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Draws the app's art (original, made for NES FCEUmm PS5: a pixel wordmark over a retro perspective grid; no logos,
-no console or controller shapes).
+"""Draws the app's home-screen background (original, made for NES FCEUmm PS5: a pixel wordmark over a retro
+perspective grid). The icon is the project's art in app/sce_sys/icon-source.png, not made here.
 
-  tools/make_art.py <dir>   -> icon-source.png (1024), icon0.png (512), background-source.png (1920x1080) and
-                               background-3840.png (for pic0.dds / pic1.dds)
+  tools/make_art.py <dir>   -> background-source.png (1920x1080) and background-3840.png (for pic0.dds / pic1.dds)
 
 pic0.dds and pic1.dds are background-3840.png encoded as BC7 with bc7enc_rdo (`bc7enc -q -g background-3840.png`),
 with the DDS header of ps5-native-app-boilerplate's prepare-assets.sh (one mip level, straight alpha).
@@ -117,32 +116,5 @@ def bg_art(W, H):
     return img
 
 
-def icon(S):
-    img = Image.new("RGB", (S, S))
-    d = ImageDraw.Draw(img)
-    for y in range(S):
-        t = y / S
-        d.line([(0, y), (S, y)], fill=(int(24 + 40 * t), int(16 + 6 * t), int(52 - 10 * t)))
-    for yy in range(0, S, 6):  # scanlines
-        d.line([(0, yy), (S, yy)], fill=(10, 6, 22))
-    # grid floor at the bottom
-    hz = int(S * 0.84)
-    for i in range(-10, 11):
-        d.line([(S // 2 + i * S // 16, hz), (S // 2 + i * S // 3, S)], fill=(200, 40, 90), width=3)
-    y, step = hz, 5.0
-    while y < S:
-        d.line([(0, int(y)), (S, int(y))], fill=(200, 40, 90), width=3)
-        step *= 1.45
-        y += step
-    cell = S // 21
-    x = (S - word_width("NES", cell)) // 2
-    pixel_word(d, "NES", x, int(S * 0.08), cell, RED, shadow=(14, 4, 14))
-    text_center(d, S, int(S * 0.08) + 7 * cell + int(S * 0.0), "FCEUmm", int(S * 0.17), CREAM)
-    text_center(d, S, int(S * 0.67), "for PS5", int(S * 0.09), CREAM, shadow=(60, 10, 40))
-    return img
-
-
-icon(1024).save(out + "/icon-source.png")
-icon(1024).resize((512, 512), Image.LANCZOS).save(out + "/icon0.png")
 bg_art(1920, 1080).save(out + "/background-source.png")
 bg_art(3840, 2160).save(out + "/background-3840.png")

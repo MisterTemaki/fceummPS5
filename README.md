@@ -149,16 +149,17 @@ Send `NESFCEUmmPS5.elf` and open the icon again.
   eboot.bin              FCEUmm (a native app, signed as PS5SX2's is), with the helper inside
   sce_module/libc.prx    the native app's C runtime (the same as PS5SX2's and ps5-native-app-boilerplate's)
   sce_sys/param.json     title "NES FCEUmm PS5", ID PPSA99013
-  sce_sys/icon0.png      the icon (512x512; ps5/app/sce_sys/icon0.png in the source)
+  sce_sys/icon0.png      the icon: the "NES FCEUmm for PS5" art (512x512; ps5/app/sce_sys/icon0.png in the source)
   sce_sys/pic0.dds       the home-screen background while the icon is selected (3840x2160, BC7)
   sce_sys/pic1.dds       the launch background (the same image)
 ```
 
-The icon and the background are original art drawn for this port by `ps5/tools/make_art.py`: a pixel "NES"
-wordmark and "FCEUmm" over a retro perspective grid (`icon-source.png`, 1024x1024, and `background-source.png`,
-1920x1080, in `ps5/app/sce_sys/`). The background is rendered at 3840x2160 and encoded to `pic0.dds`/`pic1.dds` as
-BC7 (bc7enc_rdo, as ps5-native-app-boilerplate's `tools/prepare-assets.sh --background` does). To change the
-icon, replace `ps5/app/sce_sys/icon0.png` (512x512 PNG) and rebuild. For another title ID:
+The icon is the project's official art, `ps5/app/sce_sys/icon-source.png` (512x512): an NES pad under the "NES
+FCEUmm for PS5" title; `icon0.png` is the same image. To change the icon, replace `ps5/app/sce_sys/icon0.png`
+(512x512 PNG) and rebuild. The background -- the large image behind the icon when NES FCEUmm PS5 is selected on
+the home screen -- is drawn by `ps5/tools/make_art.py`: a pixel "NES" wordmark and "FCEUmm" over a retro
+perspective grid (`background-source.png`, 1920x1080), rendered at 3840x2160 and encoded to `pic0.dds`/`pic1.dds`
+as BC7 (bc7enc_rdo, as ps5-native-app-boilerplate's `tools/prepare-assets.sh --background` does). For another title ID:
 `make ps5 TITLE_ID=XXXX00000`.
 
 **Home-screen art:** ShadowMountPlus copies the art in `sce_sys` (icon, backgrounds, `param.json`) to
@@ -447,7 +448,7 @@ The build has three stages:
 
 The data built into the app is made by scripts in `ps5/tools/`: `make_gamedb.py` (`data/nointro.tsv`, from
 libretro-database), `make_nesdb.py` (`data/nesdb.tsv`, from Mesen's `MesenNesDB.txt` and FCEUmm's own corrections),
-`make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources) and `make_art.py` (the icon and
+`make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources) and `make_art.py` (the home-screen
 background).
 
 ## Source layout
@@ -543,9 +544,12 @@ binary is distributed with its complete source (`make dist` makes the zip).
 - **stb_image / stb_image_resize2 / stb_truetype** (Sean Barrett): public domain or MIT.
 - **UI fonts**, the same as PS5SX2's, in `ps5/frontend/assets/fonts/` with their licenses: Roboto Regular (Google,
   Apache 2.0), PromptFont (Yukari "Shinmera" Hafner, SIL OFL 1.1), Font Awesome Brands (Fonticons, Inc.; font
-  SIL OFL 1.1, icons CC BY 4.0). The icon and background art use Poppins Bold (Indian Type Foundry, SIL OFL 1.1).
-- **Icon and background:** original art made for this port (`ps5/tools/make_art.py`). Nintendo, NES, Famicom and
-  Famicom Disk System are trademarks of Nintendo; this port is not affiliated with or endorsed by Nintendo.
+  SIL OFL 1.1, icons CC BY 4.0). The background art uses Poppins Bold (Indian Type Foundry, SIL OFL 1.1).
+- **Icon and background:** the "NES FCEUmm for PS5" art chosen for the project (`ps5/app/sce_sys/icon-source.png`)
+  for the icon; original art made for this port (`ps5/tools/make_art.py`) for the home-screen background.
+  Nintendo, NES, Famicom, Famicom Disk System and their logos are trademarks of Nintendo; PlayStation, PS5 and the
+  PlayStation logo are trademarks of Sony Interactive Entertainment; this port is not affiliated with or endorsed
+  by either.
 - **Covers:** [libretro-thumbnails](https://github.com/libretro-thumbnails), downloaded on the console, not
   included. **Names and CRCs:** [libretro-database](https://github.com/libretro/libretro-database) (No-Intro).
 - **Port:** [github.com/MisterTemaki](https://github.com/MisterTemaki).
