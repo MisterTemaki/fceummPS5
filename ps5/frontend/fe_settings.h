@@ -43,7 +43,8 @@ struct Settings
 	void DefaultButtons();
 	// library
 	bool covers_download = true; // fetch box art from libretro-thumbnails
-	bool debug_logs = true;      // boot.log and the others in /data/fceumm/logs (OrbisLogSetEnabled)
+	bool debug_logs = false;     // boot.log and the others in /data/fceumm/logs (OrbisLogSetEnabled); off by default
+	int language = 0;            // fe::Language: 0 English (the default), 1 Spanish, 2 Portuguese (Brazil), 3 French, 4 German
 	int shelf_family = 0; // fe::Family the shelf shows
 	std::string last_rom; // the shelf puts the selection on this game
 

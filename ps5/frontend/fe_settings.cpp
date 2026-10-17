@@ -46,6 +46,9 @@ Settings& Config()
 
 void Settings::Load()
 {
+	// off by default (1.0.1); the host tests turn the default on (orbis_paths.cpp reads the same variable)
+	if (const char* d = getenv("FCEUMM_LOGS_DEFAULT"))
+		debug_logs = atoi(d) != 0;
 	FILE* f = fopen(IniPath().c_str(), "r");
 	if (!f)
 		return;
@@ -114,6 +117,8 @@ void Settings::Load()
 			covers_download = n != 0;
 		else if (key == "debug_logs")
 			debug_logs = n != 0;
+		else if (key == "language")
+			language = Clamp(n, 0, 4);
 		else if (key == "shelf_family")
 			shelf_family = Clamp(n, 0, 64);
 		else if (key == "last_rom")
@@ -159,6 +164,7 @@ void Settings::Save() const
 	fprintf(f, "state_slot=%d\n", state_slot);
 	fprintf(f, "covers_download=%d\n", covers_download ? 1 : 0);
 	fprintf(f, "debug_logs=%d\n", debug_logs ? 1 : 0);
+	fprintf(f, "language=%d\n", language);
 	fprintf(f, "shelf_family=%d\n", shelf_family);
 	fprintf(f, "last_rom=%s\n", last_rom.c_str());
 	bool ok = ferror(f) == 0;

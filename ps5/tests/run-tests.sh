@@ -10,6 +10,8 @@ INSTALLER=$PWD/build/host/fceumm-ps5-installer
 HELPER=$PWD/build/host/fceumm-ps5-helper
 # ports nobody listens on, so the app's ordinary runs find no helper and no ELF loader
 export FCEUMM_HELPER_PORT=$((20000 + RANDOM % 10000)) FCEUMM_ELFLDR_PORT=$((30000 + RANDOM % 10000)) FCEUMM_JB_NO_OTHERS=1
+# debug logs are off by default (1.0.1); the tests read boot.log, so they turn the default on (group 25 checks it off)
+export FCEUMM_LOGS_DEFAULT=1
 CHECK="python3 $PWD/tests/check_ppm.py"
 RECT="python3 $PWD/tests/check_rect.py"
 ROM="python3 $PWD/tests/make_test_rom.py"
@@ -751,6 +753,13 @@ expect "[ \"\$(cat $T/root/logs/boot.log)\" = 'OLD RUN' ] && [ ! -e $T/root/logs
 expect "! grep -q '^\[fceumm-ps5' $T/out.txt" "nothing on stdout either"
 expect "grep -q '^debug_logs=0' $T/root/fceumm-ps5.ini" "the setting stays off"
 nosan "$T"
+# the default (1.0.1): no debug_logs key and no test override -> nothing written, and the settings file says 0
+T=$(newroot t25z)
+$ROM "$T/root/roms/test.nes" >/dev/null
+rc=$(FCEUMM_LOGS_DEFAULT= run "$T" "0:0;$(QUITAT 100)" "90" "$T/root/roms/test.nes")
+expect "[ $rc = 0 ] && [ ! -e $T/root/logs/boot.log ] && ! grep -q '^\[fceumm-ps5' $T/out.txt" "debug logs off by default: no boot.log"
+expect "grep -q '^debug_logs=0' $T/root/fceumm-ps5.ini" "the default settings file has debug_logs=0"
+nosan "$T"
 # Settings (Triangle) -> Debug logs (Up twice from Shader: Back, then Debug logs) -> Off: that line is the last one
 T=$(newroot t25b)
 $ROM "$T/root/roms/test.nes" >/dev/null
@@ -765,7 +774,7 @@ $ROM "$T/root/roms/test.nes" >/dev/null
 echo "debug_logs=0" >>"$T/root/fceumm-ps5.ini"
 rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;60:$UP;62:0;70:$CROSS;72:0;90:$CIRCLE;92:0;$(SHELFQUIT_AT 120)" "")
 expect "grep -q '^debug_logs=1' $T/root/fceumm-ps5.ini" "Debug logs On saved"
-expect "grep -q 'debug logs turned on' $T/root/logs/boot.log && ! grep -q 'NES FCEUmm PS5 1\.[0-9], FCEUmm' $T/root/logs/boot.log" "boot.log starts at the switch (nothing from before it)"
+expect "grep -q 'debug logs turned on' $T/root/logs/boot.log && ! grep -q 'NES FCEUmm PS5 1\.[0-9.]*, FCEUmm' $T/root/logs/boot.log" "boot.log starts at the switch (nothing from before it)"
 nosan "$T"
 # the helper follows the setting too
 stop_helpers25() { pkill -f 'build/host/fceumm-ps5-(installer|helper)' 2>/dev/null; sleep 0.3; }
@@ -870,6 +879,78 @@ $ROM "$T/root/roms/test.nes" >/dev/null
 echo "region=2" >>"$T/root/fceumm-ps5.ini"
 rc=$(FCEUMM_HOST_QUIT_AFTER=3 run "$T" "0:0" "" "$T/root/roms/test.nes")
 expect "grep -q 'running \"test\" (NES), 50.0' $T/root/logs/boot.log" "Console region PAL: 50 Hz"
+fi
+
+if want 28; then
+echo "== 28. languages: English by default; Spanish, Portuguese (Brazil), French and German translated"
+expect "python3 $PWD/tests/check_i18n.py $PWD/frontend/fe_i18n.cpp >/dev/null" "every translation has its five languages and the English format specifiers"
+L2RIGHT=$(printf %x $((0x$L2 | 0x$RIGHT)))
+LEFT=80
+for L in 1 2 3 4; do
+	T=$(newroot t28_$L)
+	echo "language=$L" >>"$T/root/fceumm-ps5.ini"
+	mkdir -p "$T/root/roms/FDS" "$T/root/roms/NES"
+	$ROM "$T/root/roms/NES/Alpha (USA).nes" >/dev/null
+	$ROM "$T/root/roms/FDS/Game (Japan).fds" >/dev/null
+	# the settings screen scrolled through; the disk without its BIOS (the error box); the game: a save, the next
+	# slot, the pause menu walked down, back to the list; quit (the question)
+	pad="0:0;20:$TRIANGLE;22:0"; f=30
+	for i in $(seq 1 48); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 6)); done
+	pad="$pad;$((f + 4)):$CIRCLE;$((f + 6)):0;$((f + 20)):$RIGHT;$((f + 22)):0;$((f + 30)):$CROSS;$((f + 32)):0"; f=$((f + 70))
+	pad="$pad;$f:$CROSS;$((f + 2)):0;$((f + 20)):$LEFT;$((f + 22)):0"; f=$((f + 40))
+	pad="$pad;$f:$CROSS;$((f + 2)):0"; f=$((f + 100))
+	pad="$pad;$f:$L2UP;$((f + 4)):0;$((f + 30)):$L2RIGHT;$((f + 34)):0"; f=$((f + 60))
+	pad="$pad;$f:$L3R3;$((f + 2)):0"; f=$((f + 10))
+	for i in $(seq 1 11); do pad="$pad;$f:$DOWN;$((f + 2)):0"; f=$((f + 8)); done
+	pad="$pad;$((f + 10)):$UP;$((f + 12)):0;$((f + 20)):$CROSS;$((f + 22)):0"; f=$((f + 60))
+	pad="$pad;$f:$OPTIONS;$((f + 2)):0;$((f + 10)):$CROSS;$((f + 12)):0"
+	rm -f $T/missing.txt
+	rc=$(FCEUMM_HOST_I18N_MISSING=$T/missing.txt run "$T" "$pad" "")
+	# and the shelf with no games
+	T2=$(newroot t28e_$L)
+	echo "language=$L" >>"$T2/root/fceumm-ps5.ini"
+	rc2=$(FCEUMM_HOST_I18N_MISSING=$T/missing.txt run "$T2" "0:0;40:$OPTIONS;42:0;50:$CROSS;52:0" "")
+	# what was shown untranslated: only names (the games', the systems', the buttons') and texts already translated
+	python3 - $T/missing.txt $PWD/frontend/fe_i18n.cpp > $T/untranslated.txt <<'PY'
+import re, sys
+src = open(sys.argv[2], encoding='utf-8').read()
+translated = set(re.findall(r'"((?:[^"\\]|\\.)*)"', src))
+spec = re.compile(r'%(?:%|[-+ #0]*\d*(?:\.\d+)?(?:hh|h|ll|l|z)?[diouxXeEfgGcsp])')
+# a text printed from a translated format: the format as a pattern
+formats = [re.compile('^' + ''.join('.*' if spec.fullmatch(part) else re.escape(part)
+                                    for part in re.split('(' + spec.pattern + ')', f)) + '$')
+           for f in translated if '%' in f]
+names = {'Alpha (USA)', 'Alpha', 'Game (Japan)', 'Game', 'NES', 'FDS', 'Famicom Disk System', 'L1', 'R1', 'OPTIONS',
+         'English', 'Español', 'Português (Brasil)', 'Français', 'Deutsch', 'S-Video', 'RGB', '4:3', '16:9', 'Mesen',
+         'Dendy'}
+try:
+    lines = open(sys.argv[1], encoding='utf-8').read().splitlines()
+except FileNotFoundError:
+    lines = []
+for t in lines:
+    if t in translated or t in names or not re.search('[A-Za-z]{2}', t) or re.fullmatch(r'[\d%. ]+', t):
+        continue
+    if any(f.match(t) for f in formats):
+        continue
+    if re.match(r'(NES|FDS|Famicom Disk System) {3}', t) or t.startswith('↣'):
+        continue
+    print(t)
+PY
+	expect "[ $rc = 0 ] && [ $rc2 = 0 ] && [ -s $T/missing.txt ] && [ ! -s $T/untranslated.txt ]" "language $L: every text shown is translated ($(head -c 200 $T/untranslated.txt | tr '\n' '|'))"
+	expect "grep -q 'save state 1: ok' $T/root/logs/boot.log && grep -q 'missing the Famicom Disk System BIOS' $T/root/logs/boot.log && grep -q 'game closed' $T/root/logs/boot.log" "language $L: the walk went through the error box, the game and the pause menu"
+	expect "grep -q '^language=$L$' $T/root/fceumm-ps5.ini" "language $L: kept in the settings file"
+	nosan "$T"
+	rm -rf "$T2"
+done
+# Settings, Language (first row of SYSTEM: Up three times from Shader: Back, Debug logs, Language), Right: Spanish
+T=$(newroot t28s)
+rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;60:$UP;62:0;70:$UP;72:0;80:$RIGHT;82:0;100:$CIRCLE;102:0;110:$OPTIONS;112:0;120:$CROSS;122:0" "")
+expect "[ $rc = 0 ] && grep -q '^language=1$' $T/root/fceumm-ps5.ini" "Settings, Language, Right: Español saved"
+# English stays the default: no setting, English on the screen (the texts pass through as they are)
+T=$(newroot t28en)
+$ROM "$T/root/roms/test.nes" >/dev/null
+rc=$(FCEUMM_HOST_I18N_MISSING=$T/missing.txt run "$T" "0:0;$(QUITAT 100)" "" "$T/root/roms/test.nes")
+expect "[ $rc = 0 ] && [ ! -s $T/missing.txt ] && grep -q '^language=0$' $T/root/fceumm-ps5.ini" "English by default (language=0): nothing is looked up"
 fi
 
 echo

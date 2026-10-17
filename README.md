@@ -89,9 +89,14 @@ README, "`NESFCEUmmPS5.elf`" always means the current release's ELF.
 **1.0:** the first release, with what the other ports learned built in: covers downloaded in the background by the
 helper with its own HTTPS (Mbed TLS), CRT shaders, saves per system, the debug logs setting.
 
+**1.0.1:** interface languages (English, Spanish, Portuguese (Brazil), French, German); the debug logs are off by
+default.
+
 ## Language
 
-Every screen and notification of NES FCEUmm PS5 is in English.
+English (the default), Spanish, Portuguese (Brazil), French or German: Settings -> **SYSTEM** -> **Language**
+(Left / Right), saved as `language=0`...`4` in `fceumm-ps5.ini`. Menus, settings, messages and notifications follow
+it at once; the logs stay in English.
 
 ## Requirements
 
@@ -308,7 +313,8 @@ Triangle on the shelf, or "Settings" in the pause menu:
     menus always use Cross / Circle.
   - Changes apply at once, in the game too, and are saved in `fceumm-ps5.ini` (`turbo`, `btn_a`...`btn_coin`).
 - **Library:** download covers.
-- **System:** **Debug logs** (On by default) -- see [Debugging](#debugging-logs-and-crashes).
+- **System:** **Language** (see [Language](#language)); **Debug logs** (Off by default since 1.0.1) -- see
+  [Debugging](#debugging-logs-and-crashes).
 
 The settings go to the core as its libretro options (`fceumm_*`), so they behave as in RetroArch.
 
@@ -388,8 +394,8 @@ threads. Every minute in a game, `boot.log` says how long the shader took per fr
 -> **Debug logs**. Off stops every log at once: the app writes nothing more to `boot.log` (its last line says the
 logs were turned off) or to the console output, and the next starts -- the app, the installer and the helper --
 write no log files at all; the files of earlier runs are left as they are. On starts again at once, adding to
-`boot.log`. The setting is `debug_logs=0` / `debug_logs=1` in `fceumm-ps5.ini`. Leave them on if you want to
-report a problem: with them off there is no log to send, and no `== CRASH ==` report either.
+`boot.log`. The setting is `debug_logs=0` / `debug_logs=1` in `fceumm-ps5.ini`; it is off by default (1.0.1).
+Turn it on if you want to report a problem: with them off there is no log to send, and no `== CRASH ==` report either.
 
 If something fails, send the files in `/data/fceumm/logs/`: `boot.log` (the app), `installer.log` and
 `helper.log`, plus the previous session's `.prev.log` files. They record every step:

@@ -1,0 +1,334 @@
+// NES FCEUmm PS5 frontend: the interface's languages (fe_i18n.h).
+// SPDX-License-Identifier: MIT
+
+#include "fe_i18n.h"
+
+#include "fe_settings.h"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <mutex>
+#include <set>
+#include <string>
+#include <unordered_map>
+
+namespace fe
+{
+namespace
+{
+// English, Spanish, Portuguese (Brazil), French, German. A text missing here is shown in English.
+struct Entry
+{
+	const char* en;
+	const char* es;
+	const char* pt;
+	const char* fr;
+	const char* de;
+};
+
+const Entry kTable[] = {
+	// ---- the settings
+	{"On", "Sí", "Sim", "Oui", "Ein"},
+	{"Off", "No", "Não", "Non", "Aus"},
+	{"VIDEO", "VÍDEO", "VÍDEO", "VIDÉO", "VIDEO"},
+	{"Shader", "Shader", "Shader", "Shader", "Shader"},
+	{"Screen size", "Tamaño de la imagen", "Tamanho da imagem", "Taille de l'image", "Bildgröße"},
+	{"Aspect ratio", "Relación de aspecto", "Proporção da tela", "Format d'image", "Seitenverhältnis"},
+	{"Palette", "Paleta", "Paleta", "Palette", "Palette"},
+	{"NTSC filter (Blargg)", "Filtro NTSC (Blargg)", "Filtro NTSC (Blargg)", "Filtre NTSC (Blargg)", "NTSC-Filter (Blargg)"},
+	{"Overscan", "Overscan", "Overscan", "Overscan", "Overscan"},
+	{"HD packs (Mesen's; next start)", "Packs HD (de Mesen; próximo inicio)", "Pacotes HD (do Mesen; próximo início)",
+		"Packs HD (Mesen ; prochain lancement)", "HD-Packs (Mesen; nächster Start)"},
+	{"Smooth picture", "Imagen suavizada", "Imagem suavizada", "Image lissée", "Geglättetes Bild"},
+	{"(shader)", "(shader)", "(shader)", "(shader)", "(Shader)"},
+	{"Scanlines (CRT effect)", "Scanlines (efecto CRT)", "Scanlines (efeito CRT)", "Lignes de balayage (effet CRT)",
+		"Scanlines (Röhreneffekt)"},
+	{"Show FPS", "Mostrar FPS", "Mostrar FPS", "Afficher les FPS", "FPS anzeigen"},
+	{"AUDIO", "AUDIO", "ÁUDIO", "AUDIO", "AUDIO"},
+	{"Sound", "Sonido", "Som", "Son", "Ton"},
+	{"Volume", "Volumen", "Volume", "Volume", "Lautstärke"},
+	{"Sound quality", "Calidad de sonido", "Qualidade do som", "Qualité du son", "Klangqualität"},
+	{"Low-pass filter", "Filtro de paso bajo", "Filtro passa-baixa", "Filtre passe-bas", "Tiefpassfilter"},
+	{"EMULATION", "EMULACIÓN", "EMULAÇÃO", "ÉMULATION", "EMULATION"},
+	{"Fast forward speed (hold R2)", "Velocidad de avance rápido (mantén R2)", "Velocidade do avanço rápido (segure R2)",
+		"Vitesse d'avance rapide (maintenir R2)", "Schnellvorlauf-Tempo (R2 halten)"},
+	{"Unlimited", "Sin límite", "Sem limite", "Illimitée", "Unbegrenzt"},
+	{"Rewind (hold L2 + R2)", "Rebobinar (mantén L2 + R2)", "Voltar no tempo (segure L2 + R2)",
+		"Retour arrière (maintenir L2 + R2)", "Zurückspulen (L2 + R2 halten)"},
+	{"Console region", "Región de la consola", "Região do console", "Région de la console", "Konsolenregion"},
+	{"Remove the sprite limit", "Quitar el límite de sprites", "Remover o limite de sprites",
+		"Supprimer la limite de sprites", "Sprite-Limit aufheben"},
+	{"RAM at power-on (next start)", "RAM al encender (próximo inicio)", "RAM ao ligar (próximo início)",
+		"RAM à l'allumage (prochain lancement)", "RAM beim Einschalten (nächster Start)"},
+	{"Fix headers (Mesen's database; next start)", "Corregir cabeceras (BD de Mesen; próximo inicio)",
+		"Corrigir cabeçalhos (BD do Mesen; próximo início)", "Corriger les en-têtes (base Mesen ; prochain lancement)",
+		"Header korrigieren (Mesen-Datenbank; nächster Start)"},
+	{"CONTROLS (NES pad button  ->  PS5 button)", "CONTROLES (botón del mando NES  ->  botón PS5)",
+		"CONTROLES (botão do controle NES  ->  botão do PS5)", "COMMANDES (bouton de la manette NES  ->  bouton PS5)",
+		"STEUERUNG (NES-Taste  ->  PS5-Taste)"},
+	{"Turbo speed", "Velocidad del turbo", "Velocidade do turbo", "Vitesse du turbo", "Turbo-Tempo"},
+	{"Button %s", "Botón %s", "Botão %s", "Bouton %s", "Taste %s"},
+	{"Default button layout", "Botones por defecto", "Botões padrão", "Boutons par défaut", "Standardbelegung"},
+	{"LIBRARY", "BIBLIOTECA", "BIBLIOTECA", "BIBLIOTHÈQUE", "BIBLIOTHEK"},
+	{"Download covers", "Descargar portadas", "Baixar capas", "Télécharger les jaquettes", "Cover herunterladen"},
+	{"SYSTEM", "SISTEMA", "SISTEMA", "SYSTÈME", "SYSTEM"},
+	{"Language", "Idioma", "Idioma", "Langue", "Sprache"},
+	{"Debug logs", "Registros de depuración", "Registros de depuração", "Journaux de débogage", "Debug-Protokolle"},
+	{"Back", "Volver", "Voltar", "Retour", "Zurück"},
+	{"Settings", "Ajustes", "Configurações", "Paramètres", "Einstellungen"},
+	{"Change", "Cambiar", "Mudar", "Changer", "Ändern"},
+	{"Adjust", "Ajustar", "Ajustar", "Régler", "Anpassen"},
+	// ---- the settings' choices
+	{"CRT Easymode style", "Estilo CRT Easymode", "Estilo CRT Easymode", "Style CRT Easymode", "CRT-Easymode-Stil"},
+	{"Fit to screen", "Ajustar a la pantalla", "Ajustar à tela", "Adapter à l'écran", "An Bildschirm anpassen"},
+	{"Integer scale", "Escala entera", "Escala inteira", "Échelle entière", "Ganzzahlige Skalierung"},
+	{"Stretch to 16:9", "Estirar a 16:9", "Esticar para 16:9", "Étirer en 16:9", "Auf 16:9 strecken"},
+	{"TV (8:7 pixels)", "TV (píxeles 8:7)", "TV (pixels 8:7)", "TV (pixels 8:7)", "TV (8:7-Pixel)"},
+	{"Square pixels", "Píxeles cuadrados", "Pixels quadrados", "Pixels carrés", "Quadratische Pixel"},
+	{"FCEUX (FCEUmm's default)", "FCEUX (la de FCEUmm)", "FCEUX (padrão do FCEUmm)", "FCEUX (celle de FCEUmm)",
+		"FCEUX (FCEUmm-Standard)"},
+	{"Composite", "Compuesto", "Composto", "Composite", "Composite"},
+	{"Monochrome", "Monocromo", "Monocromático", "Monochrome", "Monochrom"},
+	{"Hide 8 lines top and bottom (a TV)", "Ocultar 8 líneas arriba y abajo (una TV)",
+		"Ocultar 8 linhas em cima e embaixo (uma TV)", "Masquer 8 lignes en haut et en bas (une TV)",
+		"8 Zeilen oben und unten ausblenden (ein TV)"},
+	{"Show everything", "Mostrar todo", "Mostrar tudo", "Tout afficher", "Alles zeigen"},
+	{"Hide 8 pixels on every edge", "Ocultar 8 píxeles en cada borde", "Ocultar 8 pixels em cada borda",
+		"Masquer 8 pixels sur chaque bord", "8 Pixel an jedem Rand ausblenden"},
+	{"Low", "Baja", "Baixa", "Basse", "Niedrig"},
+	{"High", "Alta", "Alta", "Haute", "Hoch"},
+	{"Very high (the most accurate)", "Muy alta (la más precisa)", "Muito alta (a mais precisa)",
+		"Très haute (la plus précise)", "Sehr hoch (am genauesten)"},
+	{"Auto", "Auto", "Auto", "Auto", "Auto"},
+	{"NTSC (USA, Japan)", "NTSC (EE. UU., Japón)", "NTSC (EUA, Japão)", "NTSC (États-Unis, Japon)", "NTSC (USA, Japan)"},
+	{"PAL (Europe)", "PAL (Europa)", "PAL (Europa)", "PAL (Europe)", "PAL (Europa)"},
+	{"$FF (FCEUmm's)", "$FF (como FCEUmm)", "$FF (como o FCEUmm)", "$FF (comme FCEUmm)", "$FF (wie FCEUmm)"},
+	{"Random", "Aleatoria", "Aleatória", "Aléatoire", "Zufällig"},
+	{"30 presses a second", "30 pulsaciones por segundo", "30 toques por segundo", "30 appuis par seconde",
+		"30 Drücke pro Sekunde"},
+	{"20 presses a second", "20 pulsaciones por segundo", "20 toques por segundo", "20 appuis par seconde",
+		"20 Drücke pro Sekunde"},
+	{"15 presses a second", "15 pulsaciones por segundo", "15 toques por segundo", "15 appuis par seconde",
+		"15 Drücke pro Sekunde"},
+	{"10 presses a second", "10 pulsaciones por segundo", "10 toques por segundo", "10 appuis par seconde",
+		"10 Drücke pro Sekunde"},
+	{"6 presses a second", "6 pulsaciones por segundo", "6 toques por segundo", "6 appuis par seconde",
+		"6 Drücke pro Sekunde"},
+	{"4 presses a second", "4 pulsaciones por segundo", "4 toques por segundo", "4 appuis par seconde",
+		"4 Drücke pro Sekunde"},
+	{"2 presses a second", "2 pulsaciones por segundo", "2 toques por segundo", "2 appuis par seconde",
+		"2 Drücke pro Sekunde"},
+	{"1 press a second", "1 pulsación por segundo", "1 toque por segundo", "1 appui par seconde", "1 Druck pro Sekunde"},
+	{"None", "Ninguno", "Nenhum", "Aucun", "Keins"},
+	{"Touchpad", "Panel táctil", "Touchpad", "Pavé tactile", "Touchpad"},
+	{"Cross", "Cruz", "X", "Croix", "Kreuz"},
+	{"Circle", "Círculo", "Bola", "Rond", "Kreis"},
+	{"Square", "Cuadrado", "Quadrado", "Carré", "Quadrat"},
+	{"Triangle", "Triángulo", "Triângulo", "Triangle", "Dreieck"},
+	{"Turbo A", "Turbo A", "Turbo A", "Turbo A", "Turbo A"},
+	{"Turbo B", "Turbo B", "Turbo B", "Turbo B", "Turbo B"},
+	{"Start", "Start", "Start", "Start", "Start"},
+	{"Select", "Select", "Select", "Select", "Select"},
+	{"Disk: next side (FDS)", "Disco: siguiente cara (FDS)", "Disco: próximo lado (FDS)", "Disque : face suivante (FDS)",
+		"Disk: nächste Seite (FDS)"},
+	{"Disk: in / out (FDS)", "Disco: meter / sacar (FDS)", "Disco: inserir / ejetar (FDS)",
+		"Disque : insérer / éjecter (FDS)", "Disk: einlegen / auswerfen (FDS)"},
+	{"Insert coin (VS. System)", "Insertar moneda (VS. System)", "Inserir ficha (VS. System)",
+		"Insérer une pièce (VS. System)", "Münze einwerfen (VS. System)"},
+	// ---- the pause menu
+	{"Resume", "Continuar", "Continuar", "Reprendre", "Fortsetzen"},
+	{"Save state (slot %d)", "Guardar estado (ranura %d)", "Salvar estado (slot %d)", "Sauvegarder l'état (emplacement %d)",
+		"Spielstand speichern (Platz %d)"},
+	{"Load state (slot %d)", "Cargar estado (ranura %d)", "Carregar estado (slot %d)", "Charger l'état (emplacement %d)",
+		"Spielstand laden (Platz %d)"},
+	{"State slot", "Ranura de estado", "Slot do estado", "Emplacement", "Spielstand-Platz"},
+	{"%d (used)", "%d (usada)", "%d (usado)", "%d (utilisé)", "%d (belegt)"},
+	{"%d (empty)", "%d (vacía)", "%d (vazio)", "%d (vide)", "%d (leer)"},
+	{"Reset", "Reiniciar", "Reiniciar", "Réinitialiser", "Reset"},
+	{"Power cycle", "Apagar y encender", "Desligar e ligar", "Éteindre et rallumer", "Aus- und einschalten"},
+	{"Back to the game list", "Volver a la lista de juegos", "Voltar à lista de jogos", "Retour à la liste des jeux",
+		"Zurück zur Spieleliste"},
+	{"Quit NES FCEUmm PS5", "Salir de NES FCEUmm PS5", "Sair do NES FCEUmm PS5", "Quitter NES FCEUmm PS5",
+		"NES FCEUmm PS5 beenden"},
+	{"State saved.", "Estado guardado.", "Estado salvo.", "État sauvegardé.", "Spielstand gespeichert."},
+	{"Could not save the state.", "No se pudo guardar el estado.", "Não foi possível salvar o estado.",
+		"Impossible de sauvegarder l'état.", "Spielstand konnte nicht gespeichert werden."},
+	{"This slot is empty.", "Esta ranura está vacía.", "Este slot está vazio.", "Cet emplacement est vide.",
+		"Dieser Platz ist leer."},
+	{"OK", "Aceptar", "OK", "OK", "OK"},
+	{"Yes", "Sí", "Sim", "Oui", "Ja"},
+	{"No", "No", "Não", "Non", "Nein"},
+	// ---- the shelf
+	{"Looking for games...", "Buscando juegos...", "Procurando jogos...", "Recherche des jeux...", "Suche Spiele..."},
+	{"Downloading covers...", "Descargando portadas...", "Baixando capas...", "Téléchargement des jaquettes...",
+		"Lade Cover..."},
+	{"Quit NES FCEUmm PS5?", "¿Salir de NES FCEUmm PS5?", "Sair do NES FCEUmm PS5?", "Quitter NES FCEUmm PS5 ?",
+		"NES FCEUmm PS5 beenden?"},
+	{"No games found.", "No se encontraron juegos.", "Nenhum jogo encontrado.", "Aucun jeu trouvé.",
+		"Keine Spiele gefunden."},
+	{"Copy your games to their system's folder in", "Copia tus juegos a la carpeta de su sistema en",
+		"Copie seus jogos para a pasta do sistema deles em", "Copiez vos jeux dans le dossier de leur système dans",
+		"Kopiere deine Spiele in den Ordner ihres Systems in"},
+	{"/data/fceumm/roms   or   fceumm/roms  on a USB drive", "/data/fceumm/roms   o   fceumm/roms  en un USB",
+		"/data/fceumm/roms   ou   fceumm/roms  num pendrive", "/data/fceumm/roms   ou   fceumm/roms  sur une clé USB",
+		"/data/fceumm/roms   oder   fceumm/roms  auf einem USB-Stick"},
+	{"NES  .nes .unf .unif     FDS  .fds     (also inside .zip)", "NES  .nes .unf .unif     FDS  .fds     (también en .zip)",
+		"NES  .nes .unf .unif     FDS  .fds     (também em .zip)", "NES  .nes .unf .unif     FDS  .fds     (aussi en .zip)",
+		"NES  .nes .unf .unif     FDS  .fds     (auch in .zip)"},
+	{"Famicom Disk System games need disksys.rom in /data/fceumm/bios.",
+		"Los juegos de Famicom Disk System necesitan disksys.rom en /data/fceumm/bios.",
+		"Os jogos de Famicom Disk System precisam do disksys.rom em /data/fceumm/bios.",
+		"Les jeux Famicom Disk System ont besoin de disksys.rom dans /data/fceumm/bios.",
+		"Famicom-Disk-System-Spiele brauchen disksys.rom in /data/fceumm/bios."},
+	{"Then open NES FCEUmm PS5 again.", "Luego vuelve a abrir NES FCEUmm PS5.", "Depois abra o NES FCEUmm PS5 de novo.",
+		"Puis rouvrez NES FCEUmm PS5.", "Dann NES FCEUmm PS5 neu öffnen."},
+	{"Downloading covers... %d left", "Descargando portadas... faltan %d", "Baixando capas... faltam %d",
+		"Téléchargement des jaquettes... %d restantes", "Lade Cover... noch %d"},
+	{"Downloading covers in the background... %d left", "Descargando portadas en segundo plano... faltan %d",
+		"Baixando capas em segundo plano... faltam %d", "Téléchargement des jaquettes en arrière-plan... %d restantes",
+		"Lade Cover im Hintergrund... noch %d"},
+	{"Offline: covers next time", "Sin conexión: portadas la próxima vez", "Sem conexão: capas na próxima vez",
+		"Hors ligne : jaquettes la prochaine fois", "Offline: Cover beim nächsten Mal"},
+	{"no cover", "sin portada", "sem capa", "sans jaquette", "kein Cover"},
+	{"Play", "Jugar", "Jogar", "Jouer", "Spielen"},
+	{"Browse", "Explorar", "Navegar", "Parcourir", "Blättern"},
+	{"System", "Sistema", "Sistema", "Système", "System"},
+	{"Skip 10", "Saltar 10", "Pular 10", "Sauter 10", "10 weiter"},
+	{"Get cover", "Obtener portada", "Baixar capa", "Récupérer la jaquette", "Cover holen"},
+	{"Quit", "Salir", "Sair", "Quitter", "Beenden"},
+	{"All games", "Todos los juegos", "Todos os jogos", "Tous les jeux", "Alle Spiele"},
+	// ---- in a game
+	{"Coin inserted", "Moneda insertada", "Ficha inserida", "Pièce insérée", "Münze eingeworfen"},
+	{"State saved to slot %d", "Estado guardado en la ranura %d", "Estado salvo no slot %d",
+		"État sauvegardé dans l'emplacement %d", "Spielstand auf Platz %d gespeichert"},
+	{"Could not save the state", "No se pudo guardar el estado", "Não foi possível salvar o estado",
+		"Impossible de sauvegarder l'état", "Spielstand konnte nicht gespeichert werden"},
+	{"Slot %d is empty", "La ranura %d está vacía", "O slot %d está vazio", "L'emplacement %d est vide",
+		"Platz %d ist leer"},
+	{"State loaded from slot %d", "Estado cargado de la ranura %d", "Estado carregado do slot %d",
+		"État chargé depuis l'emplacement %d", "Spielstand von Platz %d geladen"},
+	{"Could not load the state", "No se pudo cargar el estado", "Não foi possível carregar o estado",
+		"Impossible de charger l'état", "Spielstand konnte nicht geladen werden"},
+	{"State slot %d (used)", "Ranura %d (usada)", "Slot %d (usado)", "Emplacement %d (utilisé)", "Platz %d (belegt)"},
+	{"State slot %d (empty)", "Ranura %d (vacía)", "Slot %d (vazio)", "Emplacement %d (vide)", "Platz %d (leer)"},
+	// FCEUmm's own messages
+	{"Disk %d of %d Side %s Inserted", "Disco %d de %d, cara %s insertado", "Disco %d de %d, lado %s inserido",
+		"Disque %d sur %d, face %s insérée", "Disk %d von %d, Seite %s eingelegt"},
+	{"Disk %d of %d Side %s Ejected", "Disco %d de %d, cara %s expulsado", "Disco %d de %d, lado %s ejetado",
+		"Disque %d sur %d, face %s éjectée", "Disk %d von %d, Seite %s ausgeworfen"},
+	{"Disk %d of %d Side %s Selected", "Disco %d de %d, cara %s elegido", "Disco %d de %d, lado %s escolhido",
+		"Disque %d sur %d, face %s choisie", "Disk %d von %d, Seite %s gewählt"},
+	{"Eject disk before selecting", "Saca el disco antes de elegir otro", "Ejete o disco antes de escolher outro",
+		"Éjectez le disque avant d'en choisir un autre", "Erst die Disk auswerfen"},
+	{"FDS BIOS image (disksys.rom) missing", "Falta la BIOS de FDS (disksys.rom)", "Falta a BIOS do FDS (disksys.rom)",
+		"BIOS FDS (disksys.rom) manquant", "FDS-BIOS (disksys.rom) fehlt"},
+	{"Error reading FDS BIOS image (disksys.rom)", "Error al leer la BIOS de FDS (disksys.rom)",
+		"Erro ao ler a BIOS do FDS (disksys.rom)", "Erreur de lecture du BIOS FDS (disksys.rom)",
+		"Fehler beim Lesen des FDS-BIOS (disksys.rom)"},
+	{"System: NTSC", "Sistema: NTSC", "Sistema: NTSC", "Système : NTSC", "System: NTSC"},
+	{"System: PAL", "Sistema: PAL", "Sistema: PAL", "Système : PAL", "System: PAL"},
+	{"System: Dendy", "Sistema: Dendy", "Sistema: Dendy", "Système : Dendy", "System: Dendy"},
+	{"ROM loading failed...", "No se pudo cargar la ROM...", "Falha ao carregar a ROM...",
+		"Échec du chargement de la ROM...", "ROM konnte nicht geladen werden..."},
+	// ---- errors
+	{"Could not start the game", "No se pudo iniciar el juego", "Não foi possível iniciar o jogo",
+		"Impossible de lancer le jeu", "Das Spiel konnte nicht gestartet werden"},
+	{"The path of %s is too long (over 254 characters): move it to a shorter folder.",
+		"La ruta de %s es demasiado larga (más de 254 caracteres): muévelo a una carpeta más corta.",
+		"O caminho de %s é longo demais (mais de 254 caracteres): mova-o para uma pasta mais curta.",
+		"Le chemin de %s est trop long (plus de 254 caractères) : déplacez-le dans un dossier plus court.",
+		"Der Pfad von %s ist zu lang (über 254 Zeichen): in einen kürzeren Ordner verschieben."},
+	{"There is no NES or Famicom Disk System game inside %s.",
+		"No hay ningún juego de NES ni de Famicom Disk System en %s.",
+		"Não há nenhum jogo de NES ou de Famicom Disk System em %s.",
+		"Il n'y a aucun jeu NES ou Famicom Disk System dans %s.",
+		"In %s ist kein NES- oder Famicom-Disk-System-Spiel."},
+	{"NES FCEUmm PS5 could not read %s.", "NES FCEUmm PS5 no pudo leer %s.", "O NES FCEUmm PS5 não conseguiu ler %s.",
+		"NES FCEUmm PS5 n'a pas pu lire %s.", "NES FCEUmm PS5 konnte %s nicht lesen."},
+	{"Famicom Disk System games need its BIOS: disksys.rom. Copy it to %s/ and try again.",
+		"Los juegos de Famicom Disk System necesitan su BIOS: disksys.rom. Cópiala en %s/ e inténtalo de nuevo.",
+		"Os jogos de Famicom Disk System precisam da BIOS: disksys.rom. Copie-a para %s/ e tente de novo.",
+		"Les jeux Famicom Disk System ont besoin du BIOS : disksys.rom. Copiez-le dans %s/ et réessayez.",
+		"Famicom-Disk-System-Spiele brauchen das BIOS: disksys.rom. Nach %s/ kopieren und erneut versuchen."},
+	{"FCEUmm could not load %s (a board it doesn't know, or a damaged file).",
+		"FCEUmm no pudo cargar %s (una placa que no conoce o un archivo dañado).",
+		"O FCEUmm não conseguiu carregar %s (uma placa que ele não conhece ou um arquivo danificado).",
+		"FCEUmm n'a pas pu charger %s (une carte qu'il ne connaît pas, ou un fichier endommagé).",
+		"FCEUmm konnte %s nicht laden (eine unbekannte Platine oder eine beschädigte Datei)."},
+	{"NES FCEUmm PS5 has no access to /data", "NES FCEUmm PS5 no tiene acceso a /data",
+		"O NES FCEUmm PS5 não tem acesso a /data", "NES FCEUmm PS5 n'a pas accès à /data",
+		"NES FCEUmm PS5 hat keinen Zugriff auf /data"},
+	{"Send NESFCEUmmPS5-v%s.elf with the Payload Manager (it unlocks the app), then open NES FCEUmm PS5 again.",
+		"Envía NESFCEUmmPS5-v%s.elf con el Payload Manager (desbloquea la app) y vuelve a abrir NES FCEUmm PS5.",
+		"Envie o NESFCEUmmPS5-v%s.elf com o Payload Manager (ele libera o app) e abra o NES FCEUmm PS5 de novo.",
+		"Envoyez NESFCEUmmPS5-v%s.elf avec le Payload Manager (il débloque l'app), puis rouvrez NES FCEUmm PS5.",
+		"NESFCEUmmPS5-v%s.elf mit dem Payload Manager senden (er entsperrt die App), dann NES FCEUmm PS5 neu öffnen."},
+	{"NES FCEUmm PS5: could not start %s", "NES FCEUmm PS5: no se pudo iniciar %s",
+		"NES FCEUmm PS5: não foi possível iniciar %s", "NES FCEUmm PS5 : impossible de lancer %s",
+		"NES FCEUmm PS5: %s konnte nicht gestartet werden"},
+	{"NES FCEUmm PS5: the game could not be started again. %s",
+		"NES FCEUmm PS5: el juego no se pudo volver a iniciar. %s",
+		"NES FCEUmm PS5: não foi possível reiniciar o jogo. %s",
+		"NES FCEUmm PS5 : le jeu n'a pas pu être relancé. %s",
+		"NES FCEUmm PS5: das Spiel konnte nicht neu gestartet werden. %s"},
+	{"NES FCEUmm PS5: video failed to start (see %s/logs/boot.log)",
+		"NES FCEUmm PS5: el vídeo no pudo iniciarse (ver %s/logs/boot.log)",
+		"NES FCEUmm PS5: o vídeo não conseguiu iniciar (veja %s/logs/boot.log)",
+		"NES FCEUmm PS5 : la vidéo n'a pas pu démarrer (voir %s/logs/boot.log)",
+		"NES FCEUmm PS5: Video konnte nicht starten (siehe %s/logs/boot.log)"},
+	{"NES FCEUmm PS5: the emulator failed to start", "NES FCEUmm PS5: el emulador no pudo iniciarse",
+		"NES FCEUmm PS5: o emulador não conseguiu iniciar", "NES FCEUmm PS5 : l'émulateur n'a pas pu démarrer",
+		"NES FCEUmm PS5: der Emulator konnte nicht starten"},
+};
+
+const char* const kLanguageNames[] = {"English", "Español", "Português (Brasil)", "Français", "Deutsch"};
+
+const std::unordered_map<std::string, const Entry*>& Index()
+{
+	static const std::unordered_map<std::string, const Entry*> index = [] {
+		std::unordered_map<std::string, const Entry*> m;
+		for (const Entry& e : kTable)
+			m.emplace(e.en, &e);
+		return m;
+	}();
+	return index;
+}
+} // namespace
+
+const char* LanguageName(int lang)
+{
+	return lang >= 0 && lang < int(Language::Count) ? kLanguageNames[lang] : kLanguageNames[0];
+}
+
+const char* T(const char* english)
+{
+	const int lang = Config().language;
+	if (lang <= 0 || lang >= int(Language::Count) || !english)
+		return english;
+	const auto& index = Index();
+	const auto it = index.find(english);
+	if (it == index.end())
+	{
+#ifndef __PROSPERO__
+		// the host tests: every text shown without a translation, once (FCEUMM_HOST_I18N_MISSING=<file>)
+		if (const char* path = getenv("FCEUMM_HOST_I18N_MISSING"))
+		{
+			static std::mutex m;
+			static std::set<std::string> seen;
+			std::lock_guard<std::mutex> lock(m);
+			if (seen.insert(english).second)
+				if (FILE* f = fopen(path, "a"))
+				{
+					fprintf(f, "%s\n", english);
+					fclose(f);
+				}
+		}
+#endif
+		return english;
+	}
+	const Entry& e = *it->second;
+	const char* t = lang == 1 ? e.es : lang == 2 ? e.pt : lang == 3 ? e.fr : e.de;
+	return t && *t ? t : english;
+}
+} // namespace fe

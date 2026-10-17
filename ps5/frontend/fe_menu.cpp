@@ -8,6 +8,7 @@
 #include "fe_menu.h"
 
 #include "fe_emu.h"
+#include "fe_i18n.h"
 #include "fe_settings.h"
 #include "fe_text.h"
 
@@ -18,6 +19,7 @@
 #include "ProsperoVideo.h"
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -28,6 +30,18 @@ namespace fe
 namespace
 {
 using ps5video::Rgb;
+
+// printf into a std::string (the translated formats)
+std::string Fmt(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+std::string Fmt(const char* fmt, ...)
+{
+	char buf[512];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	return buf;
+}
 constexpr int W = ps5video::kWidth;
 constexpr int H = ps5video::kHeight;
 
@@ -113,7 +127,7 @@ void Header(const char* subtitle)
 	const char* ver = "FCEUmm " FCEUMM_CORE_VERSION " - PS5 " FCEUMM_PS5_VERSION;
 	DrawText(W - 80 - TextWidth(ver, 2), 40, ver, 2, kDim);
 	if (subtitle && *subtitle)
-		DrawText(84, 104, FitText(subtitle, 3, W - 168).c_str(), 3, kDim);
+		DrawText(84, 104, FitText(T(subtitle), 3, W - 168).c_str(), 3, kDim);
 }
 
 void Footer(const std::string& help)
@@ -147,26 +161,27 @@ void DrawOptionBox(const std::string& title, const std::vector<Row>& rows, int s
 		ps5video::FillRect(bx - 4, by - 4, bw + 8, bh + 8, kAccent);
 	ps5video::FillRect(bx, by, bw, bh, kPanel);
 	ps5video::FillRect(bx, by + 86, bw, 3, kAccent);
-	DrawText(bx + 40, by + 24, FitText(title, 5, bw - 80).c_str(), 5, kAccent);
+	DrawText(bx + 40, by + 24, FitText(T(title.c_str()), 5, bw - 80).c_str(), 5, kAccent);
 	for (int i = 0; i < visible; i++)
 	{
 		const Row& row = rows[size_t(top + i)];
 		const int y = by + 110 + i * row_h;
 		if (row.header)
 		{
-			DrawText(bx + 40, y + 6, row.label.c_str(), 2, kAccent);
+			DrawText(bx + 40, y + 6, FitText(T(row.label.c_str()), 2, bw - 80).c_str(), 2, kAccent);
 			ps5video::FillRect(bx + 40, y + 34, bw - 80, 1, kSel);
 			continue;
 		}
 		if (top + i == sel)
 			ps5video::FillRect(bx + 16, y - 6, bw - 32, row_h, kSel);
 		const uint32_t col = row.enabled ? kText : kDim;
-		DrawText(bx + 40, y, row.label.c_str(), scale, col);
-		if (!row.value.empty())
-		{
-			const std::string v = (top + i == sel ? "< " + row.value + " >" : row.value);
+		// the label gets what the value leaves (a translation may be longer than the English)
+		const std::string tv = row.value.empty() ? std::string() : std::string(T(row.value.c_str()));
+		const std::string v = tv.empty() ? tv : (top + i == sel ? "< " + tv + " >" : tv);
+		const int label_w = bw - 80 - (v.empty() ? 0 : TextWidth(v.c_str(), scale) + 30);
+		DrawText(bx + 40, y, FitText(T(row.label.c_str()), scale, label_w).c_str(), scale, col);
+		if (!v.empty())
 			DrawText(bx + bw - 40 - TextWidth(v.c_str(), scale), y, v.c_str(), scale, top + i == sel ? kText : kAccent);
-		}
 	}
 	if (int(rows.size()) > visible)
 	{
@@ -228,6 +243,7 @@ enum SettingRow
 	H_LIBRARY,
 	S_COVERS,
 	H_SYSTEM,
+	S_LANGUAGE,
 	S_DEBUGLOGS,
 	S_COUNT
 };
@@ -274,13 +290,14 @@ Row SettingRowFor(int s)
 		case H_LIBRARY: return {"LIBRARY", "", true, true};
 		case S_COVERS: return {"Download covers", OnOff(c.covers_download)};
 		case H_SYSTEM: return {"SYSTEM", "", true, true};
+		case S_LANGUAGE: return {"Language", LanguageName(c.language)};
 		case S_DEBUGLOGS: return {"Debug logs", OnOff(c.debug_logs)};
 		default:
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
 			{
 				const int i = s - S_BTN_FIRST;
 				const int b = c.buttons[i];
-				return {std::string("Button ") + emu::kConsoleButtons[i].name,
+				return {Fmt(T("Button %s"), T(emu::kConsoleButtons[i].name)),
 					emu::kPs5Buttons[b >= 0 && b < emu::kPs5ButtonCount ? b : emu::kPs5ButtonCount - 1].name};
 			}
 			return {"", ""};
@@ -326,6 +343,7 @@ void ChangeSetting(int s, int dir)
 		case S_HEADERDB: c.header_db = !c.header_db; break;
 		case S_TURBO: c.turbo = Cycle(c.turbo, dir, emu::kTurboSpeedCount); break;
 		case S_COVERS: c.covers_download = !c.covers_download; break;
+		case S_LANGUAGE: c.language = Cycle(c.language, dir, int(Language::Count)); break;
 		case S_DEBUGLOGS:
 			c.debug_logs = !c.debug_logs;
 			OrbisLogSetEnabled(c.debug_logs); // at once: the line saying so is the last (or first) one written
@@ -375,7 +393,7 @@ void SettingsScreen(bool over_game)
 		Background(over_game);
 		DrawOptionBox("Settings", rows, sel, over_game);
 		if (!over_game)
-			Footer(std::string(icon::Cross) + " Change     " + icon::DpadLeftRight + " Adjust     " + icon::Circle + " Back");
+			Footer(std::string(icon::Cross) + " " + T("Change") + "     " + icon::DpadLeftRight + " " + T("Adjust") + "     " + icon::Circle + " " + T("Back"));
 		Present();
 		const Nav n = nav.Read();
 		if (n.up)
@@ -451,14 +469,14 @@ PauseAction PauseMenu()
 
 	for (;;)
 	{
-		char buf[64];
+		char buf[128];
 		std::vector<Row> rows(I_COUNT);
 		rows[I_RESUME] = {"Resume", ""};
-		snprintf(buf, sizeof(buf), "Save state (slot %d)", cfg.state_slot);
+		snprintf(buf, sizeof(buf), T("Save state (slot %d)"), cfg.state_slot);
 		rows[I_SAVE] = {buf, ""};
-		snprintf(buf, sizeof(buf), "Load state (slot %d)", cfg.state_slot);
+		snprintf(buf, sizeof(buf), T("Load state (slot %d)"), cfg.state_slot);
 		rows[I_LOAD] = {buf, "", emu::StateExists(cfg.state_slot)};
-		snprintf(buf, sizeof(buf), "%d%s", cfg.state_slot, emu::StateExists(cfg.state_slot) ? " (used)" : " (empty)");
+		snprintf(buf, sizeof(buf), T(emu::StateExists(cfg.state_slot) ? "%d (used)" : "%d (empty)"), cfg.state_slot);
 		rows[I_SLOT] = {"State slot", buf};
 		rows[I_DISK_SIDE] = {"Disk: next side (FDS)", "", emu::IsDiskGame()};
 		rows[I_DISK_IO] = {"Disk: in / out (FDS)", "", emu::IsDiskGame()};
@@ -476,9 +494,10 @@ PauseAction PauseMenu()
 			DrawText(W / 2 + 560 - TextWidth(sys.c_str(), 2) - 40, (H - (120 + I_COUNT * 46 + 30)) / 2 + 40, sys.c_str(), 2, kDim);
 		if (!toast.empty() && Now() < toast_until)
 		{
-			const int tw = TextWidth(toast.c_str(), 3);
+			const char* tt = T(toast.c_str());
+			const int tw = TextWidth(tt, 3);
 			ps5video::FillRect((W - tw) / 2 - 30, H - 110, tw + 60, 70, kSel);
-			DrawText((W - tw) / 2, H - 90, toast.c_str(), 3, kText);
+			DrawText((W - tw) / 2, H - 90, tt, 3, kText);
 		}
 		Present();
 
@@ -548,7 +567,7 @@ void MessageBox(const std::string& title, const std::string& text)
 {
 	NavReader nav;
 	const int bw = 1400;
-	const std::vector<std::string> lines = Wrap(text, 3, bw - 80);
+	const std::vector<std::string> lines = Wrap(T(text.c_str()), 3, bw - 80);
 	const int bh = 220 + int(lines.size()) * 44;
 	for (;;)
 	{
@@ -556,14 +575,14 @@ void MessageBox(const std::string& title, const std::string& text)
 		const int bx = (W - bw) / 2, by = (H - bh) / 2;
 		ps5video::FillRect(bx - 4, by - 4, bw + 8, bh + 8, kAccent);
 		ps5video::FillRect(bx, by, bw, bh, kPanel);
-		DrawText(bx + 40, by + 30, FitText(title, 5, bw - 80).c_str(), 5, kAccent);
+		DrawText(bx + 40, by + 30, FitText(T(title.c_str()), 5, bw - 80).c_str(), 5, kAccent);
 		int y = by + 120;
 		for (const std::string& l : lines)
 		{
 			DrawText(bx + 40, y, l.c_str(), 3, kText);
 			y += 44;
 		}
-		DrawText(bx + 40, by + bh - 70, (std::string(icon::Cross) + " OK").c_str(), 3, kDim);
+		DrawText(bx + 40, by + bh - 70, (std::string(icon::Cross) + " " + T("OK")).c_str(), 3, kDim);
 		Present();
 		const Nav n = nav.Read();
 		if (n.ok || n.back || n.options)

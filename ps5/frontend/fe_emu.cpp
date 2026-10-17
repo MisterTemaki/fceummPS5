@@ -15,6 +15,7 @@
 
 #include "ProsperoNotify.h"
 #include "fe_games.h"
+#include "fe_i18n.h"
 #include "fe_nes.h"
 #include "fe_nesdb.h"
 #include "fe_palettes.h"
@@ -167,6 +168,18 @@ const ConsoleButton kConsoleButtons[kConsoleButtonCount] = {
 
 namespace
 {
+// printf into a std::string (the translated formats)
+std::string Fmt(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+std::string Fmt(const char* fmt, ...)
+{
+	char buf[512];
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	return buf;
+}
+
 constexpr int kTargetQueued = ps5audio::kRate * 60 / 1000; // 60 ms of sound
 constexpr int kRewindEvery = 3; // frames between rewind snapshots
 constexpr size_t kRewindBytes = 192u * 1024 * 1024;
@@ -397,7 +410,24 @@ bool Environment(unsigned cmd, void* data)
 		{
 			const retro_message* m = static_cast<const retro_message*>(data);
 			if (m && m->msg)
+			{
+				// FCEUmm's disk messages ("Disk 1 of 2 Side A Inserted"): shown in the interface's language
+				int disk = 0, disks = 0;
+				char side[8] = {}, what[16] = {};
+				if (sscanf(m->msg, "Disk %d of %d Side %7s %15s", &disk, &disks, side, what) == 4)
+				{
+					const char* f = !strcmp(what, "Inserted") ? "Disk %d of %d Side %s Inserted"
+						: !strcmp(what, "Ejected")            ? "Disk %d of %d Side %s Ejected"
+						: !strcmp(what, "Selected")           ? "Disk %d of %d Side %s Selected"
+															  : nullptr;
+					if (f)
+					{
+						emu::Osd(Fmt(fe::T(f), disk, disks, side));
+						return true;
+					}
+				}
 				emu::Osd(m->msg);
+			}
 			return true;
 		}
 		// accepted and ignored
@@ -845,7 +875,7 @@ bool LoadGame(const std::string& path, std::string* error)
 		// the core keeps the game's path and the paths it builds from it in 256-byte buffers
 		OrbisLog("[emu] could not start %s: the path is %zu characters long", path.c_str(), path.size());
 		if (error)
-			*error = "The path of " + file + " is too long (over 254 characters): move it to a shorter folder.";
+			*error = Fmt(fe::T("The path of %s is too long (over 254 characters): move it to a shorter folder."), file.c_str());
 		return false;
 	}
 	std::string ext = ExtOf(path);
@@ -864,7 +894,7 @@ bool LoadGame(const std::string& path, std::string* error)
 		{
 			OrbisLog("[emu] could not start %s: no game inside the zip", path.c_str());
 			if (error)
-				*error = "There is no NES or Famicom Disk System game inside " + file + ".";
+				*error = Fmt(fe::T("There is no NES or Famicom Disk System game inside %s."), file.c_str());
 			g.path.clear();
 			return false;
 		}
@@ -874,7 +904,7 @@ bool LoadGame(const std::string& path, std::string* error)
 	{
 		OrbisLog("[emu] could not start %s: can't read it", path.c_str());
 		if (error)
-			*error = "NES FCEUmm PS5 could not read " + file + ".";
+			*error = Fmt(fe::T("NES FCEUmm PS5 could not read %s."), file.c_str());
 		g.path.clear();
 		return false;
 	}
@@ -887,7 +917,7 @@ bool LoadGame(const std::string& path, std::string* error)
 		OrbisLog("[emu] missing firmware: disksys.rom (checked before loading)");
 		OrbisLog("[emu] could not start %s: missing the Famicom Disk System BIOS", path.c_str());
 		if (error)
-			*error = "Famicom Disk System games need its BIOS: disksys.rom. Copy it to " + g.sys_dir + "/ and try again.";
+			*error = Fmt(fe::T("Famicom Disk System games need its BIOS: disksys.rom. Copy it to %s/ and try again."), g.sys_dir.c_str());
 		g.path.clear();
 		g.rom.clear();
 		return false;
@@ -922,7 +952,7 @@ bool LoadGame(const std::string& path, std::string* error)
 	{
 		OrbisLog("[emu] could not start %s", path.c_str());
 		if (error)
-			*error = "FCEUmm could not load " + file + " (a board it doesn't know, or a damaged file).";
+			*error = Fmt(fe::T("FCEUmm could not load %s (a board it doesn't know, or a damaged file)."), file.c_str());
 		g.path.clear();
 		g.rom.clear();
 		return false;
@@ -1040,7 +1070,7 @@ void Resume()
 
 void Osd(const std::string& text)
 {
-	g.osd = text;
+	g.osd = fe::T(text.c_str());
 	g.osd_until = Now() + 2.5;
 }
 
@@ -1052,7 +1082,10 @@ bool SaveState(int slot)
 	std::vector<uint8_t> data(size);
 	bool ok = size > 0 && retro_serialize(data.data(), size) && WriteFileAtomic(StatePath(slot), data.data(), size);
 	OrbisLog("[emu] save state %d: %s (%zu bytes)", slot, ok ? "ok" : "failed", size);
-	Osd(ok ? "State saved to slot " + std::to_string(slot) : "Could not save the state");
+	if (ok)
+		Osd(Fmt(fe::T("State saved to slot %d"), slot));
+	else
+		Osd("Could not save the state");
 	return ok;
 }
 
@@ -1063,12 +1096,15 @@ bool LoadState(int slot)
 	std::vector<uint8_t> data;
 	if (!ReadFile(StatePath(slot), data) || data.empty())
 	{
-		Osd("Slot " + std::to_string(slot) + " is empty");
+		Osd(Fmt(fe::T("Slot %d is empty"), slot));
 		return false;
 	}
 	const bool ok = retro_unserialize(data.data(), data.size());
 	OrbisLog("[emu] load state %d: %s", slot, ok ? "ok" : "failed");
-	Osd(ok ? "State loaded from slot " + std::to_string(slot) : "Could not load the state");
+	if (ok)
+		Osd(Fmt(fe::T("State loaded from slot %d"), slot));
+	else
+		Osd("Could not load the state");
 	if (ok)
 		RewindClear();
 	return ok;
@@ -1098,7 +1134,7 @@ void PowerCycle()
 	if (!LoadGame(path, &error))
 	{
 		OrbisLog("[emu] power cycle: %s", error.c_str());
-		ProsperoNotify("NES FCEUmm PS5: the game could not be started again. %s", error.c_str());
+		ProsperoNotify(fe::T("NES FCEUmm PS5: the game could not be started again. %s"), error.c_str());
 	}
 }
 
@@ -1138,7 +1174,7 @@ FrameResult RunFrame()
 		else if (pressed & (SCE_PAD_BUTTON_LEFT | SCE_PAD_BUTTON_RIGHT))
 		{
 			cfg.state_slot = (pressed & SCE_PAD_BUTTON_RIGHT) ? cfg.state_slot % 10 + 1 : (cfg.state_slot + 8) % 10 + 1;
-			Osd("State slot " + std::to_string(cfg.state_slot) + (StateExists(cfg.state_slot) ? " (used)" : " (empty)"));
+			Osd(Fmt(fe::T(StateExists(cfg.state_slot) ? "State slot %d (used)" : "State slot %d (empty)"), cfg.state_slot));
 			OrbisLog("[emu] state slot %d", cfg.state_slot);
 			cfg.Save();
 		}

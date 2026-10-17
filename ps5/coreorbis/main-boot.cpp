@@ -24,6 +24,7 @@
 
 #include "fe_covers.h"
 #include "fe_emu.h"
+#include "fe_i18n.h"
 #include "fe_menu.h"
 #include "fe_prefetch.h"
 #include "fe_settings.h"
@@ -75,7 +76,7 @@ bool PlayGame(const std::string& rom, bool from_command_line)
 	std::string error;
 	if (!emu::LoadGame(rom, &error))
 	{
-		ProsperoNotify("NES FCEUmm PS5: could not start %s", rom.substr(rom.find_last_of('/') + 1).c_str());
+		ProsperoNotify(fe::T("NES FCEUmm PS5: could not start %s"), rom.substr(rom.find_last_of('/') + 1).c_str());
 		fe::MessageBox("Could not start the game", error);
 		return !from_command_line;
 	}
@@ -176,7 +177,7 @@ int Run(int argc, char** argv)
 	if (!ps5video::Init())
 	{
 		OrbisLog("[boot] video init failed");
-		ProsperoNotify("NES FCEUmm PS5: video failed to start (see %s/logs/boot.log)", OrbisRoot().c_str());
+		ProsperoNotify(fe::T("NES FCEUmm PS5: video failed to start (see %s/logs/boot.log)"), OrbisRoot().c_str());
 		return 1;
 	}
 	OrbisLog("[boot] splash screen hidden: %x", unsigned(sceSystemServiceHideSplashScreen()));
@@ -190,8 +191,11 @@ int Run(int argc, char** argv)
 	if (!have_data)
 	{
 		// the jailbreak didn't happen: say so on the screen (the pad works, this is the title in front)
-		fe::MessageBox("NES FCEUmm PS5 has no access to /data",
-			"Send NESFCEUmmPS5-v" FCEUMM_PS5_VERSION ".elf with the Payload Manager (it unlocks the app), then open NES FCEUmm PS5 again.");
+		char text[512];
+		snprintf(text, sizeof(text),
+			fe::T("Send NESFCEUmmPS5-v%s.elf with the Payload Manager (it unlocks the app), then open NES FCEUmm PS5 again."),
+			FCEUMM_PS5_VERSION);
+		fe::MessageBox("NES FCEUmm PS5 has no access to /data", text);
 		ps5input::Shutdown();
 		ps5audio::Shutdown();
 		ps5video::Shutdown();
@@ -201,7 +205,7 @@ int Run(int argc, char** argv)
 	FCEUMM_STAGE(Boot, "emu init");
 	if (!emu::InitCore())
 	{
-		ProsperoNotify("NES FCEUmm PS5: the emulator failed to start");
+		ProsperoNotify("%s", fe::T("NES FCEUmm PS5: the emulator failed to start"));
 		ps5audio::Shutdown();
 		ps5video::Shutdown();
 		return 1;
