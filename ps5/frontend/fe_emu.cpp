@@ -905,9 +905,8 @@ bool LoadGame(const std::string& path, std::string* error)
 
 	// the game is read here (from its .zip or .7z, or the file itself) and handed to FCEUmm in memory: its header can
 	// then be corrected first (fe_nesdb.h). A game on a share is read whole here too: nothing streams while it runs.
-	// netfs_prepare_game: a game on a share has its folder listed first (nothing for any other path); it is let go
-	// again (netfs_end_game) if the game doesn't start
-	netfs_prepare_game(path);
+	// (no netfs_prepare_game here: it fetches the MSU-1 files beside a SNES ROM, nothing an NES game uses; a stray
+	// msu1.rom in the same folder would only delay the start. netfs_end_game below lets go of nothing then.)
 	std::string inner;
 	if (!g.kept_rom.empty() && g.kept_rom_path == path)
 	{

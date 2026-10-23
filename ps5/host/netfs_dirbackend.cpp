@@ -1,6 +1,6 @@
 // NES FCEUmm PS5 host build: a "share" that is a folder on this machine, for the end-to-end tests. With
 // FCEUMM_HOST_NETFS_DIR=<folder> every smb:// and nfs:// address in shares.txt connects to that folder, so the
-// real app (shelf, launch, a CD game) runs over netfs without a server. FCEUMM_HOST_NETFS_DELAY_MS adds that many
+// real app (shelf, launch, a game) runs over netfs without a server. FCEUMM_HOST_NETFS_DELAY_MS adds that many
 // milliseconds to every read, as a slow link would. FCEUMM_HOST_NETFS_EIO=<text>[,<text>...]: every read of a file whose
 // path has one of these in it fails with EIO (the share stays connected), as a read cut short on a real link would.
 // Not part of the console build.

@@ -243,9 +243,10 @@ struct CrcCache
 		for (auto it = lines.begin(); prune && it != lines.end();)
 		{
 			const std::string& key = it->first;
-			const bool network =
-				netfs_is_network_path(key.c_str()) || (key.rfind("sys:", 0) == 0 && netfs_is_network_path(key.c_str() + 4));
-			if (!seen.count(key) && key.rfind("/mnt/", 0) != 0 && !network)
+			// an archive's system is kept as "sys:<path>": the same rule for its path
+			const char* file = key.c_str() + (key.rfind("sys:", 0) == 0 ? 4 : 0);
+			const bool network = netfs_is_network_path(file);
+			if (!seen.count(key) && strncmp(file, "/mnt/", 5) != 0 && !network)
 			{
 				it = lines.erase(it);
 				dirty = true;

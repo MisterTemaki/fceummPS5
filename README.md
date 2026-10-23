@@ -30,12 +30,12 @@ one is [README-FCEUmm.md](README-FCEUmm.md)). The core (`src/`: the CPU, PPU, AP
 libretro port (`src/drivers/libretro/libretro.c`) are compiled as they are. The frontend drives the core through its
 libretro interface and plays the part RetroArch plays on a PC.
 
-> **Status (1.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 391 host tests,
+> **Status (1.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 394 host tests,
 > which run the same code (the FCEUmm core included) on Linux with the PS5 calls simulated: a hand-assembled NES test
 > program is played through the whole chain -- the shelf, the pad, the core, the video and sound output -- as an
 > NES 2.0, iNES 1.0 and UNIF file, in NTSC and PAL, from a zip and a `.7z` and as a Disk System image; games are
-> played from a network share standing in for a NAS. netfs's own 235 checks, the NFS backend's and the 7z reader's
-> 43 pass too. It has not yet been run on a console (nor have network shares or `.7z` archives). If something
+> played from a network share standing in for a NAS. netfs's own 235 checks, the NFS backend's 36 tests and the 7z
+> reader's 43 checks pass too. It has not yet been run on a console (nor have network shares or `.7z` archives). If something
 > fails, the logs in `/data/fceumm/logs/` say where.
 
 ## What it takes from Mesen and Nestopia
@@ -541,7 +541,7 @@ make ps5 -j$(nproc)              # build/ps5/NESFCEUmmPS5.elf (installer + helpe
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/NESFCEUmmPS5-v<version>.elf + the source zip
 make app                         # only build/app/PPSA99013/, to copy by hand
-make test                        # Linux builds (app, installer, helper) + 391 host tests (ASan/UBSan), with netfs's,
+make test                        # Linux builds (app, installer, helper) + 394 host tests (ASan/UBSan), with netfs's,
                                  # the NFS backend's, the tabs' and the 7z reader's unit tests (and the SMB backend's
                                  # against a real Samba, skipped without smbd and pdbedit)
 ```
@@ -626,7 +626,7 @@ and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds.
 - **`ps5/host/sce_host.cpp`** and **`ps5/tests/`**: the PS5 functions implemented on Linux, a hand-assembled 6502
   test program (`make_test_rom.py`: red picture, green while B is held, a square-wave tone; NES 2.0, iNES 1.0, UNIF,
-  PAL, battery RAM, a Disk System image) and the 391 tests: picture and input in each format, PAL timing, the Disk
+  PAL, battery RAM, a Disk System image) and the 394 tests: picture and input in each format, PAL timing, the Disk
   System BIOS message and its disk buttons, save states, zip, sound latency, integer scale and scanlines, the
   shelf's letter tabs, the system folders, the controls (button layout, turbo, the settings screen), the CRT
   shaders (the default, each one drawing under ASan/UBSan, the menu), settings, fast forward and rewind, covers per

@@ -2,7 +2,7 @@
 //
 // Shares come from shares.txt (netfs_share.h). Each appears under a mount point such as
 // /smb/192.168.1.50/games/nes; every libc file call on a path under a mount point is answered by netfs (the
-// linker's --wrap list, netfs_wrap.cpp), so the FCEUmm core, libchdr and minizip need no change. Paths that are not
+// linker's --wrap list, netfs_wrap.cpp), so the FCEUmm core and minizip need no change. Paths that are not
 // under a mount point go to the real call.
 //
 // Threads: netfs_load* and netfs_stop are called while no file or folder of netfs is open and no other netfs

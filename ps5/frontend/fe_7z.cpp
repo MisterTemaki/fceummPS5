@@ -3,7 +3,8 @@
 
 #include "fe_7z.h"
 
-// every external name of the SDK copy carries the prefix fce7z_ (it can't meet libchdr's older LZMA SDK)
+// every external name of the SDK copy carries the prefix fce7z_ (as in the other ports: it could never meet another
+// LZMA SDK copy linked in later)
 #include "fe7z_names.h"
 
 #include "7z.h"

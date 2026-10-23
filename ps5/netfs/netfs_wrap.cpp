@@ -2,7 +2,7 @@
 //
 // The EBOOT and host links pass --wrap=<name> for every function below (NETFS_WRAPPED in the Makefile: keep
 // the two lists equal; tests/test_netfs.cpp calls each one on a network path). The linker sends every call to
-// <name> in the code it links (the FCEUmm core, libchdr, minizip, the frontend, libc++'s file streams) to __wrap_<name>.
+// <name> in the code it links (the FCEUmm core, minizip, the frontend, libc++'s file streams) to __wrap_<name>.
 // A path that is not under a mount point, and a handle that is not netfs's, goes on to __real_<name>, the
 // original: all the cost is a prefix test or a range test.
 //

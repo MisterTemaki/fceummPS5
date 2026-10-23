@@ -280,6 +280,19 @@ expect "$CHECK $T/dump/flip00270.ppm 960 420 0 0 255 >/dev/null" "Excitebike sho
 expect "$CHECK $T/dump/flip00320.ppm 960 420 255 0 0 >/dev/null" "Super Mario Bros. shows the downloaded (red) cover"
 expect "$CHECK $T/dump/flip00370.ppm 960 420 0 255 0 >/dev/null" "Tetris shows the linked (green) cover"
 nosan "$T"
+# a title of four lines starts below the pad: no letter (white) on the plate's left part, where Select and Start are
+T=$(newroot t10long)
+$ROM "$T/root/roms/The Legend of the Mystical Ninja Starring Goemon and the Long Long Title Adventure (USA).nes" >/dev/null
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 70)" "60")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "python3 - $T/dump/flip00060.ppm <<'PY'
+import sys
+from PIL import Image
+a = Image.open(sys.argv[1]).convert('RGB')
+white = sum(1 for y in range(192, 263) for x in range(1100, 1186) if min(a.getpixel((x, y))) >= 225)
+sys.exit(0 if white == 0 else 1)
+PY" "a long title is drawn below the NES pad, not over it"
+nosan "$T"
 fi
 
 if want 11; then
