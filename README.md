@@ -10,8 +10,9 @@ correct bad ROM headers, Mesen's and Nestopia's palettes, and Mesen's HD packs. 
 | NES / Famicom (cartridges, VS. System games included) | `.nes` `.unf` `.unif` | none |
 | Famicom Disk System | `.fds` | `disksys.rom` |
 
-Games can also be inside a `.zip`. A disk started without the BIOS says which file is needed, and where it goes,
-on the screen.
+Games can also be inside a `.zip` or a `.7z` (see [Zip and 7-Zip archives](#zip-and-7-zip-archives)), and can be
+played from a NAS or PC on your network (SMB or NFS shares: see [Network shares](#network-shares-smb-and-nfs)). A disk
+started without the BIOS says which file is needed, and where it goes, on the screen.
 
 **Inside the emulator, to access the main menu press L3 + R3.**
 
@@ -29,11 +30,13 @@ one is [README-FCEUmm.md](README-FCEUmm.md)). The core (`src/`: the CPU, PPU, AP
 libretro port (`src/drivers/libretro/libretro.c`) are compiled as they are. The frontend drives the core through its
 libretro interface and plays the part RetroArch plays on a PC.
 
-> **Status (1.0):** builds with the ps5-payload-dev SDK into a signed native app, and passes 246 host tests, which
-> run the same code (the FCEUmm core included) on Linux with the PS5 calls simulated: a hand-assembled NES test
+> **Status (1.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 391 host tests,
+> which run the same code (the FCEUmm core included) on Linux with the PS5 calls simulated: a hand-assembled NES test
 > program is played through the whole chain -- the shelf, the pad, the core, the video and sound output -- as an
-> NES 2.0, iNES 1.0 and UNIF file, in NTSC and PAL, from a zip and as a Disk System image. It has not yet been run
-> on a console. If something fails, the logs in `/data/fceumm/logs/` say where.
+> NES 2.0, iNES 1.0 and UNIF file, in NTSC and PAL, from a zip and a `.7z` and as a Disk System image; games are
+> played from a network share standing in for a NAS. netfs's own 235 checks, the NFS backend's and the 7z reader's
+> 43 pass too. It has not yet been run on a console (nor have network shares or `.7z` archives). If something
+> fails, the logs in `/data/fceumm/logs/` say where.
 
 ## What it takes from Mesen and Nestopia
 
@@ -82,7 +85,7 @@ sits next to Snes9x PS5 (PPSA99009, helper port 9083), Mesen2 PS5 (PPSA99010, po
 
 ## Versions
 
-Every release carries its version in the file name: `NESFCEUmmPS5-v1.0.elf` and `fceumm-ps5-v1.0-src.zip`
+Every release carries its version in the file name: `NESFCEUmmPS5-v1.1.elf` and `fceumm-ps5-v1.1-src.zip`
 (`make dist`). When updating, replace the old ELF with the new one in your autoload or Payload Manager. In this
 README, "`NESFCEUmmPS5.elf`" always means the current release's ELF.
 
@@ -91,6 +94,24 @@ helper with its own HTTPS (Mbed TLS), CRT shaders, saves per system, the debug l
 
 **1.0.1:** interface languages (English, Spanish, Portuguese (Brazil), French, German); the debug logs are off by
 default.
+
+**1.1:** network shares, shelf tabs and 7-Zip archives, as Beetle PCE PS5 1.1.1 has them (thanks to CroCop86 for
+asking, [issue #1](https://github.com/MisterTemaki/fceummPS5/issues/1)); it also brings 1.0.1's languages, which were
+not released on their own.
+- **Games on network shares (SMB and NFS):** keep your NES games and disks on a NAS or PC and play them from the shelf
+  (Settings, LIBRARY, Network shares, with an on-screen keyboard and Test connection). A game is read whole when it
+  starts; nothing streams while it runs. Saves, states, `disksys.rom` and covers stay on the console. After the design
+  of [thatboialex](https://github.com/thatboialex)'s pull request to Snes9x PS5
+  ([#3](https://github.com/MisterTemaki/snes9xPS5/pull/3)). See [Network shares](#network-shares-smb-and-nfs).
+- **Shelf tabs:** Internal, USB and Network; L1 / R1 switch tabs, Up / Down the letter, **L2 / R2 skip 10 games**
+  (L1 / R1 did before), Square on the Network tab scans the shares again.
+- **7-Zip:** games and Famicom Disk System disks inside `.7z` archives (LZMA, LZMA2, PPMd...), named and covered from
+  the CRC the archive keeps, as zipped ones are. See [Zip and 7-Zip archives](#zip-and-7-zip-archives).
+- A game with no cover gets a card with an NES pad on it (a grey plate, Select and Start, the red B and A buttons),
+  no longer the SNES pad's four coloured buttons (thanks to CroCop86,
+  [issue #4](https://github.com/MisterTemaki/genplusgxPS5/issues/4)).
+- The new screens in the five languages. libsmb2 and libnfs (LGPL-2.1-or-later) are built in, as Beetle PCE PS5,
+  Genesis Plus GX PS5 and Snes9x PS5 carry them; the 7z decoder is the LZMA SDK's (public domain).
 
 ## Language
 
@@ -109,10 +130,10 @@ it at once; the logs stay in English.
 
 1. **Send `NESFCEUmmPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < NESFCEUmmPS5-v1.0.elf
+   nc -q0 PS5_IP 9021 < NESFCEUmmPS5-v1.1.elf
    ```
    It installs the app in `/data/homebrew/PPSA99013/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"NES FCEUmm PS5 1.0 installed. Open it from the NES FCEUmm PS5 icon on the
+   icon and the backgrounds), shows **"NES FCEUmm PS5 1.1 installed. Open it from the NES FCEUmm PS5 icon on the
    home screen."** and stays running as the helper.
 2. **Open the NES FCEUmm PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your games** to their system's folder, over FTP for example. The app makes the folders on its first
@@ -146,6 +167,7 @@ Send `NESFCEUmmPS5.elf` and open the icon again.
 | `/data/fceumm/covers/<system>` | downloaded covers and your own, one folder per system (the same names as in `roms/`); `covers/` itself keeps `wanted.txt` and `crc-cache.txt` |
 | `/data/fceumm/logs` | `boot.log` (the app), `installer.log` (installer/helper), `helper.log` (the helper the app starts), and the previous session's `.prev.log` files |
 | `/data/fceumm/fceumm-ps5.ini` | the menu settings |
+| `/data/fceumm/shares.txt` | the network shares (Settings, Network shares; see [Network shares](#network-shares-smb-and-nfs)) |
 
 ### The home-screen app
 
@@ -178,19 +200,25 @@ changed, register it again once: select **NES FCEUmm PS5** on the home screen, p
 The start screen is a 3D shelf of game covers, like PS5SX2's and Snes9x PS5's, with the author's line under the
 wordmark: **github.com/MisterTemaki**.
 
-- **All your games at once:** the shelf gathers the games in `/data/fceumm/roms` (its system folders) and on USB
-  drives (`fceumm/roms`), subfolders included, sorted by name. Each game's line says its system and region.
-- **Tabs by first letter:** the NES library is huge, so **Up / Down** go through **All games**, **#** (the games
-  whose names start with a number, or with a letter of another script) and **A** to **Z** -- only the letters that
-  have games are shown. A game goes by the first letter or digit of its name (`'89 Dennou Kyuusei Uranai` is under
-  #, `The Legend of Zelda` under T); Disk System games are in their letter's tab with the cartridges. The shelf
-  remembers the last tab.
+- **All your games, in tabs:** the shelf gathers the games in `/data/fceumm/roms` (its system folders), on USB
+  drives (`fceumm/roms`) and on network shares, subfolders included, sorted by name. Each game's line says its system
+  and region. A bar at the top keeps them apart, as Beetle PCE PS5's and Genesis Plus GX PS5's (and PSFlycast's
+  library) does: **Internal** (the console's drive), **USB** (only while a game is on a USB drive) and **Network**
+  (games on a share, see [Network shares](#network-shares-smb-and-nfs)). **L1 / R1** go round the tabs; each tab keeps
+  its place, and the shelf opens on the tab you used last.
+- **Tabs by first letter:** the NES library is huge, so inside a storage tab **Up / Down** go through **All games**,
+  **#** (the games whose names start with a number, or with a letter of another script) and **A** to **Z** -- only
+  the letters that have games there are shown. A game goes by the first letter or digit of its name
+  (`'89 Dennou Kyuusei Uranai` is under #, `The Legend of Zelda` under T); Disk System games are in their letter's
+  tab with the cartridges. The shelf remembers the last tab.
 - **Official names:** a game is identified by its file name or, when that doesn't match, by the ROM's CRC32,
   looked up in a table of 13,960 CRCs built into the app (No-Intro, from libretro-database: about 7,000 NES and
   Disk System games, each with and without its header).
   - The CRC is tried on the whole file, then without its 16-byte header (iNES, NES 2.0 or fwNES).
   - Loose names (`super mario bros.nes`) are recognised too.
-  - CRCs are cached in `covers/crc-cache.txt`, so each ROM is read once.
+  - CRCs are cached in `covers/crc-cache.txt`, so each ROM is read once; a zipped (or 7-Zipped) game's CRC comes
+    from the archive's directory when the table knows it, and each archive's system is remembered, so a big library
+    on a USB drive isn't opened zip by zip at every start.
 - **Automatic covers, in the background:** box art comes from
   [libretro-thumbnails](https://github.com/libretro-thumbnails) (each system's `Named_Boxarts`) over HTTPS.
   - The console's own HTTPS (`libSceHttp2`/`libSceSsl`) only works inside the app's sandbox, and the app can't
@@ -208,9 +236,9 @@ wordmark: **github.com/MisterTemaki**.
     marked (`.missing`) and only looked for again after 30 days; **Square** forces a new try.
   - Without a network nothing is tried and the shelf works the same.
 - **Your own covers:** a `.png` or `.jpg` named after the ROM file, in `/data/fceumm/covers/<system>/`
-  (`covers/NES/Mario.png` for `roms/NES/Mario.nes`), in `covers/` itself, or next to the ROM, takes priority over
-  downloads.
-- **No cover:** the game gets a card with its title and system.
+  (`covers/NES/Mario.png` for `roms/NES/Mario.nes`), in `covers/` itself, or next to the ROM (not on a network
+  share), takes priority over downloads.
+- **No cover:** the game gets a card with its title, its system and an NES pad.
 - **Turning downloads off:** Settings, "Download covers".
 
 ### Downloading all the covers yourself
@@ -243,6 +271,79 @@ The shelf is drawn by the CPU in real 3D perspective (each cover a quad turned a
 column by column with bilinear filtering, mipmaps and anti-aliased edges, split across several cores), as in
 Snes9x PS5.
 
+## Network shares (SMB and NFS)
+
+Games can be read from a Windows, Samba, NAS or router share instead of a drive: Beetle PCE PS5 1.1.1's network
+shares, which come from Genesis Plus GX PS5 2.1.1 and Snes9x PS5, where they are by
+[thatboialex](https://github.com/thatboialex) (pull request [#3](https://github.com/MisterTemaki/snes9xPS5/pull/3)).
+Add one on the console: **Settings (Triangle on the shelf) > LIBRARY > Network shares > Add a share**. Pick SMB or NFS,
+type the server's IP address, the share (or export) and, if it needs them, a user name and password with the
+on-screen keyboard (D-pad and Cross; Square deletes, Triangle is a space, L1 / R1 move the cursor, L2 is Shift, R2 the
+symbols page, OPTIONS is Done). **Test connection** says what is in the folder, or why it cannot be reached, before
+you save. Open a share in the list to change or remove it. (In the settings opened from the pause menu the row can't
+be chosen: changing the shares reconnects them.)
+
+The screen keeps its shares in `/data/fceumm/shares.txt` (the first run writes it with examples). You can edit the
+file instead, one address per line (up to 8); the screen changes only the line you edit and keeps your comments:
+
+```
+smb://192.168.1.50/games/nes
+smb://jason@192.168.1.50/games/nes?password=secret
+nfs://192.168.1.50/export/nes
+```
+
+Use the server's IP address. Inside a user name, password or folder, write `& = % # @ ; / ? ` and spaces as `%XX`
+(`p@ss` is `p%40ss`). The password sits in this file in plain text (it is never written to a log or shown).
+
+- The share's games appear on the **Network** tab as soon as it has connected; the other tabs do not wait for it.
+  While a share is connecting, or cannot be reached, the tab says so (and why, in a sentence), and with no share
+  set up it points to Settings > Network shares. **Square** on the tab scans again: it forgets the folder
+  listings and connects the shares that were down once more. The system folders work there too (`NES/`, `FDS/`),
+  and Up / Down pick a letter inside the tab.
+- Network games are first named from their file names; a background pass then reads each game once to name it by
+  checksum (a `.zip` or `.7z`: its directory, which says its system and keeps the game's CRC; the game is unpacked
+  once only when that CRC is not in the game table, a header that differs from No-Intro's for one), and the answer
+  is remembered in `covers/crc-cache.txt`. A cover for a game named late is fetched when it is. Until an archive on a
+  share has been looked into, its folder's name gives its system (`FDS/`), else it is listed with the NES games. A
+  file that could not be read (a link that dropped) is tried again at the next visit of the shelf, never remembered
+  as unreadable.
+- A share is read-only. Saves (a disk's changes included), states, covers and settings stay on the console, and so
+  does the Disk System BIOS (`/data/fceumm/bios/disksys.rom`).
+- **Games and disks are read whole** into memory when they start (an NES game is a few hundred KiB, a disk side
+  64 KiB): nothing is read from the share while the game runs, so a slow link only makes the start a little slower.
+  A power cycle starts the game again from memory.
+- If a share cannot be reached, a notification says why (no answer, wrong password, share not found...) and the
+  same sentence is in `/data/fceumm/logs/boot.log` (`[net]`). A share lost while a game runs is announced once; the
+  game goes on.
+- SMB uses libsmb2 and NFS uses libnfs; both are LGPL-2.1-or-later and sit in `ps5/third_party/` with their licence
+  notices.
+
+## Zip and 7-Zip archives
+
+An NES game (`.nes`, `.unf`, `.unif`) or a Famicom Disk System disk (`.fds`) can sit inside a `.zip` or a `.7z`. The
+game's system comes from the file inside, and the shelf names it, and finds its cover, from the CRC32 the archive's
+directory keeps for it (nothing is unpacked for that) when the game table knows that CRC; otherwise it is unpacked
+once and named by its CRC without the header, as the same file outside an archive. The game is unpacked into memory
+when it starts.
+
+- **Several files in one archive:** the first game (`.nes`, `.unf`, `.unif`, `.fds`) in the archive's order is the
+  game (a text file or a picture next to it is skipped); the others are not listed. An archive with no game in it is
+  not listed (no file is taken for a game by its size).
+- **Disks:** a `.fds` image is a small file (65,500 bytes a side), so it is supported inside an archive like a
+  cartridge: it is unpacked whole when the game starts (the BIOS is still needed), and the disk's changes go to the
+  console's `saves/FDS/<archive name>.srm`.
+- **7-Zip methods:** LZMA, LZMA2 (7-Zip's default), PPMd, with the BCJ / BCJ2 / ARM / Delta filters, and stored files.
+  Not BZip2, Deflate or Zstandard (7-Zip's other choices), and not encrypted archives: such an archive says on the
+  screen why it can't start (the method, "encrypted", a damaged archive), as a bad zip does. An archive with
+  encrypted names is not listed at all.
+- **Limits:** a game of 32 MiB at most (as in a zip: the largest multicarts). A "solid" `.7z` packs several files in
+  one block, and the whole block is unpacked to reach one file: a block over 64 MiB is refused (pack big collections
+  one game per archive, or non-solid). Everything unpacking one archive needs (the block, the directory, PPMd's
+  model) comes out of 136 MiB, and an archive listing more than 65,536 files is refused.
+- A `.7z` on a network share is read through the share like any file.
+- The 7z decoder is the [LZMA SDK](https://www.7-zip.org/sdk.html)'s C decoder (7-Zip 26.05, public domain,
+  `ps5/third_party/lzma7z/`), as Beetle PCE PS5 carries it.
+
 ## Controls
 
 **Inside the emulator, to access the main menu press L3 + R3.**
@@ -252,11 +353,12 @@ Snes9x PS5.
 | Button | Does |
 |---|---|
 | Left / Right (D-pad or stick) | change game (hold to speed up) |
-| Up / Down | change tab (All games, #, A ... Z) |
-| L1 / R1 | skip 10 games |
+| Up / Down | change letter tab (All games, #, A ... Z) |
+| L1 / R1 | next / previous storage tab (Internal, USB, Network); before 1.1 they skipped 10 games |
+| L2 / R2 | skip 10 games |
 | Cross | play |
 | Triangle | settings |
-| Square | download this game's cover again (the cover it has stays until the new one has arrived) |
+| Square | download this game's cover again (the cover it has stays until the new one has arrived); on the Network tab: scan the shares again |
 | OPTIONS | quit NES FCEUmm PS5 (asks first) |
 
 **In a game:** by default, buttons by position, as RetroArch maps them -- the NES pad's B and A on Cross and
@@ -312,7 +414,8 @@ Triangle on the shelf, or "Settings" in the pause menu:
     player (the disk and coin buttons to player 1). L2, R2, L3 and R3 stay for the hot keys and menus, and the
     menus always use Cross / Circle.
   - Changes apply at once, in the game too, and are saved in `fceumm-ps5.ini` (`turbo`, `btn_a`...`btn_coin`).
-- **Library:** download covers.
+- **Library:** download covers; **Network shares** (see [Network shares](#network-shares-smb-and-nfs); not in the
+  settings opened over a game).
 - **System:** **Language** (see [Language](#language)); **Debug logs** (Off by default since 1.0.1) -- see
   [Debugging](#debugging-logs-and-crashes).
 
@@ -420,7 +523,11 @@ covers, emu, menu), and the return addresses, which map into `ps5/build/app/fceu
 - No Zapper or other light guns, Arkanoid paddle, Power Pad or Famicom keyboard, although the core supports some
   of them; no cheats (Game Genie, codes) in the frontend yet; no `.nsf` music files.
 - VS. System games: the coin works, their DIP switches keep FCEUmm's defaults.
-- `.7z` archives are not read (`.zip` is).
+- `.7z` archives packed with BZip2, Deflate or Zstandard, or encrypted, are refused.
+- Network shares: SMB 2/3 and NFS 3/4, read only, up to 8; names of servers often don't resolve on the console (use
+  the IP address). Tested here with a folder of the test machine standing in for the share, and the NFS backend
+  against a mock and loopback sockets; not yet on a PS5, nor against a real NAS in this port (Beetle PCE PS5, Genesis
+  Plus GX PS5 and Snes9x PS5 run the same code).
 
 ## Building
 
@@ -434,7 +541,9 @@ make ps5 -j$(nproc)              # build/ps5/NESFCEUmmPS5.elf (installer + helpe
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/NESFCEUmmPS5-v<version>.elf + the source zip
 make app                         # only build/app/PPSA99013/, to copy by hand
-make test                        # Linux builds (app, installer, helper) + 246 host tests (ASan/UBSan)
+make test                        # Linux builds (app, installer, helper) + 391 host tests (ASan/UBSan), with netfs's,
+                                 # the NFS backend's, the tabs' and the 7z reader's unit tests (and the SMB backend's
+                                 # against a real Samba, skipped without smbd and pdbedit)
 ```
 
 The build has three stages:
@@ -493,16 +602,31 @@ and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
   - `fe_tlshttp.cpp`, `fe_mbedtls_config.h`, `data/cacert.pem`: the helper's own HTTPS client (sockets, Mbed TLS,
     Mozilla's CA list);
   - `fe_menu.cpp`, `fe_settings.cpp`, `fe_text.cpp`: menus, settings, text with PS5SX2's fonts;
+  - `fe_netscreen.cpp`, `fe_osk.cpp`, `fe_ui.cpp`: Settings > Network shares, its on-screen keyboard and the screens'
+    common drawing; `fe_tabs.h`: the shelf's storage tabs (from Beetle PCE PS5, Genesis Plus GX PS5 and Snes9x PS5);
+  - `fe_7z.cpp`: games inside a `.7z`, read through the app's stdio calls with the LZMA SDK's decoder;
   - `third_party/`: minizip (unzip.c, ioapi.c), as in Snes9x; Mbed TLS 3.6.7 (`mbedtls/`, its `include/` and
     `library/` as released).
 - **`ps5/third_party/zlib`**: zlib, for the zips, the CRCs and the HD packs' PNG files.
+- **`ps5/netfs/`**: network shares as folders (from Beetle PCE PS5 1.1.1, Genesis Plus GX PS5 2.1.1 and Snes9x PS5):
+  `shares.txt` (`netfs_share.cpp`, `netfs_edit.cpp`), the connections and their watchdog (`netfs_core.cpp`), folder
+  listings and file blocks with read-ahead (`netfs_cache.cpp`), the libc calls for `/smb/...` and `/nfs/...` paths
+  (`netfs_vfs.cpp`, `netfs_wrap.cpp`: the link's `--wrap` list, so the frontend, minizip and the 7z reader read a
+  share like a drive), the SMB and NFS backends (`backend_smb.cpp`, `backend_nfs.cpp`) and the console's socket and
+  resolver shims (`netfs_shims_ps5.cpp`). **`ps5/third_party/libsmb2/`**, **`ps5/third_party/libnfs/`**: the two
+  libraries, as the other ports carry them. **`ps5/third_party/lzma7z/`**: the LZMA SDK 26.05's C 7z decoder, its
+  names prefixed `fce7z_` (its README says why). On the host, `ps5/host/netfs_dirbackend.cpp` turns a share into a
+  local folder (`FCEUMM_HOST_NETFS_DIR`); netfs's own tests are `test-netfs` (an in-memory share), `make test-nfs`
+  (the NFS backend on a mock and on loopback sockets), `make test-nfs-server` (a real unfsd), `smb-test` (a real
+  Samba, skipped without `smbd`), `make test-tabs`, and the 7z reader's `make test-7z` (the archives in
+  `ps5/tests/7z/`, made by `tests/make_7z_fixtures.py`).
 - **`ps5/proto/native/`**: ps5-native-app-boilerplate's tools (BlackBearReloaded, GPL-3.0), taken from PS5SX2
   and PS5_Vulkan (mihawk-99): `ps5-native-tool`, `app_crt.cpp`, `ps5-pie.ld`, `libc_builder.cpp` and its
   manifests.
 - **`ps5/app/sce_sys/`**: param.json, icon and backgrounds.
 - **`ps5/host/sce_host.cpp`** and **`ps5/tests/`**: the PS5 functions implemented on Linux, a hand-assembled 6502
   test program (`make_test_rom.py`: red picture, green while B is held, a square-wave tone; NES 2.0, iNES 1.0, UNIF,
-  PAL, battery RAM, a Disk System image) and the 246 tests: picture and input in each format, PAL timing, the Disk
+  PAL, battery RAM, a Disk System image) and the 391 tests: picture and input in each format, PAL timing, the Disk
   System BIOS message and its disk buttons, save states, zip, sound latency, integer scale and scanlines, the
   shelf's letter tabs, the system folders, the controls (button layout, turbo, the settings screen), the CRT
   shaders (the default, each one drawing under ASan/UBSan, the menu), settings, fast forward and rewind, covers per
@@ -510,7 +634,11 @@ and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
   per system and their integrity (an erased battery save written, unchanged ones left alone), odd library files,
   long paths, covers kept offline, downloads after a tab change, the debug logs setting, the helper's HTTPS (a
   local server with a test certificate authority), and accuracy: a header corrected from Mesen's database (and
-  left alone when the setting is off or the header is NES 2.0), the palettes, the console region.
+  left alone when the setting is off or the header is NES 2.0), the palettes, the console region; the network shares
+  (a local folder standing in for the NAS: an NES game and a disk started from a share, a power cycle from memory, a
+  slow link, read errors, the background CRC pass, the Network shares screen typed with its keyboard, the storage
+  tabs, their translations); the `.7z` archives (every method and refusal, a 7z named and covered as its zip twin, a
+  disk in a 7z, a 7z on a share); the no-cover card's NES pad.
 
 ## License and credits
 
@@ -537,6 +665,20 @@ binary is distributed with its complete source (`make dist` makes the zip).
   `app_cpp_runtime.cpp`, `ps5-pie.ld` and the `libc.prx` generator, via PS5SX2 and PS5_Vulkan (mihawk-99).
 - The VideoOut tiling and setup follow the SDK's SDL2 port (zlib license).
 - **zlib** (Jean-loup Gailly, Mark Adler) and **minizip** (Gilles Vollant): zlib license.
+- **libsmb2** (Ronnie Sahlberg and contributors, [github.com/sahlberg/libsmb2](https://github.com/sahlberg/libsmb2))
+  and **libnfs** (Ronnie Sahlberg and contributors, [github.com/sahlberg/libnfs](https://github.com/sahlberg/libnfs)):
+  LGPL-2.1-or-later, linked statically into the app for the network shares. Their full source, with the few changes
+  Snes9x PS5 made (`ps5/third_party/libnfs/PATCHES.md`, `ps5/third_party/libsmb2/README.snes9xps5`), is in this
+  repository and in each release's source zip, together with everything needed to rebuild and relink the app with a
+  modified version. libsmb2 also contains code under other terms: "derived from the RSA Data Security, Inc. MD4
+  Message-Digest Algorithm", public-domain AES and MD5, and the RFC 4634 SHA/HMAC code (its notices are in the
+  files); libnfs's generated RPC code is under its BSD licence.
+- **The network share code** (`ps5/netfs/`, the Network shares screen, the on-screen keyboard) and the shelf's
+  storage tabs come from Beetle PCE PS5 1.1.1 and Genesis Plus GX PS5 2.1.1, which took them from Snes9x PS5, where
+  they are by [thatboialex](https://github.com/thatboialex) (pull request
+  [#3](https://github.com/MisterTemaki/snes9xPS5/pull/3)).
+- **LZMA SDK** (Igor Pavlov, [7-zip.org/sdk.html](https://www.7-zip.org/sdk.html)), 7-Zip 26.05's C 7z decoder:
+  public domain (`ps5/third_party/lzma7z/README.md`).
 - **Mbed TLS** 3.6.7 ([github.com/Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls), the Mbed TLS
   contributors): Apache-2.0 (`ps5/frontend/third_party/mbedtls/LICENSE`).
 - **Mozilla's CA certificate list** (`ps5/frontend/data/cacert.pem`, as packaged by

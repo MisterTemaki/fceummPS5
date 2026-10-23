@@ -24,6 +24,10 @@ FAIL=0
 CROSS=4000; CIRCLE=2000; TRIANGLE=1000; SQUARE=8000; UP=10; DOWN=40; RIGHT=20; L1=400; R1=800; L2=100; R2=200; L3R3=6; OPTIONS=8
 L2UP=$(printf %x $((0x$L2 | 0x$UP))); L2DOWN=$(printf %x $((0x$L2 | 0x$DOWN))); L2R2=$(printf %x $((0x$L2 | 0x$R2)))
 # pause menu: L3+R3, then Up from "Resume" wraps to "Quit NES FCEUmm PS5"
+# the shelf: Options, then Cross on "Quit"
+SHELFQUIT_AT() { echo "$1:$OPTIONS;$(($1 + 2)):0;$(($1 + 10)):$CROSS;$(($1 + 12)):0"; }
+# buttons pressed one after the other from frame $1, 8 frames apart
+SEQ() { local f=$1 out="" b; shift; for b in "$@"; do out="$out;$f:$b;$((f + 2)):0"; f=$((f + 8)); done; echo "${out#;}"; }
 QUITAT() { echo "$1:$L3R3;$(($1 + 2)):0;$(($1 + 10)):$UP;$(($1 + 12)):0;$(($1 + 20)):$CROSS;$(($1 + 22)):0"; }
 
 ok() { echo "  ok: $*"; PASS=$((PASS + 1)); }
@@ -266,6 +270,12 @@ expect "grep -q 'is a link to Tetris (Europe).png' $T/root/logs/boot.log" "a git
 expect "! grep -q 'GET .*Excitebike' $T/root/logs/boot.log" "your own cover (covers/NES/<ROM name>.png): nothing downloaded for it"
 expect "$CHECK $T/dump/flip00170.ppm 960 420 255 0 255 >/dev/null" "Akumajou Dracula shows the disk's (magenta) cover"
 expect "! $CHECK $T/dump/flip00220.ppm 960 420 255 0 0 >/dev/null 2>&1 && ! $CHECK $T/dump/flip00220.ppm 960 420 0 255 0 >/dev/null 2>&1" "no cover online: a placeholder card"
+# 1.1 (genplusgxPS5 issue #4): the card's emblem, top right, is the NES pad -- a light grey plate, Select and Start, the two
+# red buttons (B, A) on a dark panel --, no longer the SNES pad's four coloured buttons (red, yellow, green, blue: sampled
+# where they were)
+P=$T/dump/flip00220.ppm
+expect "! $CHECK $P 1201 227 225 60 70 40 >/dev/null && ! $CHECK $P 1238 195 240 200 60 40 >/dev/null && ! $CHECK $P 1275 227 70 180 90 40 >/dev/null && ! $CHECK $P 1238 258 70 110 230 40 >/dev/null" "the placeholder card no longer shows the SNES pad's four coloured buttons"
+expect "$CHECK $P 1222 227 186 32 40 12 >/dev/null && $CHECK $P 1273 227 186 32 40 12 >/dev/null && $CHECK $P 1201 227 44 44 54 12 >/dev/null && $CHECK $P 1127 233 60 60 72 12 >/dev/null && $CHECK $P 1238 195 198 198 208 16 >/dev/null && $CHECK $P 1238 258 198 198 208 16 >/dev/null" "it shows the NES pad: B and A (red) on their dark panel, Select and Start, the grey plate"
 expect "$CHECK $T/dump/flip00270.ppm 960 420 0 0 255 >/dev/null" "Excitebike shows your own (blue) cover, not the server's"
 expect "$CHECK $T/dump/flip00320.ppm 960 420 255 0 0 >/dev/null" "Super Mario Bros. shows the downloaded (red) cover"
 expect "$CHECK $T/dump/flip00370.ppm 960 420 0 255 0 >/dev/null" "Tetris shows the linked (green) cover"
@@ -942,6 +952,50 @@ PY
 	nosan "$T"
 	rm -rf "$T2"
 done
+# the network screens (1.1): Settings, Network shares with a share that does not connect, Add a share, the keyboard on
+# Server (Circle closes it), the share type switched to NFS, Circle asks to discard (Up, Cross: discard), Connect again;
+# back to the shelf: R1 to its Network tab (the share's state), Square scans again, L1 back, quit. Network shares is
+# Up four times from Shader (Back, Debug logs, Language, Network shares).
+for L in 1 2 3 4; do
+	T=$(newroot t28net_$L)
+	echo "language=$L" >>"$T/root/fceumm-ps5.ini"
+	echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+	$ROM "$T/root/roms/Alpha (USA).nes" >/dev/null
+	key() { pad="$pad;$f:$1;$((f + 2)):0"; f=$((f + ${2:-6})); } # one press, then the next one $2 flips later
+	pad="0:0;20:$TRIANGLE;22:0"; f=30
+	for i in $(seq 1 4); do key $UP; done
+	key $CROSS 20; key $DOWN; key $CROSS 20; key $CROSS 20; key $CIRCLE 20
+	key $UP; key $RIGHT 20; key $CIRCLE 20; key $UP; key $CROSS 20
+	key $DOWN; key $CROSS 20; key $CIRCLE 20; key $CIRCLE 30
+	key $R1 30; key $SQUARE 60; key $L1 30
+	key $OPTIONS 10; key $CROSS 10
+	rm -f $T/missing.txt
+	rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_HOST_NETFS_DIR=$T/nothing FCEUMM_HOST_I18N_MISSING=$T/missing.txt run "$T" "$pad" "")
+	python3 - $T/missing.txt $PWD/frontend/fe_i18n.cpp > $T/untranslated.txt <<'PY'
+import os, re, sys
+src = open(sys.argv[2], encoding='utf-8').read()
+translated = set(re.findall(r'"((?:[^"\\]|\\.)*)"', src))
+spec = re.compile(r'%(?:%|[-+ #0]*\d*(?:\.\d+)?(?:hh|h|ll|l|z)?[diouxXeEfgGcsp])')
+formats = [re.compile('^' + ''.join('.*' if spec.fullmatch(part) else re.escape(part)
+                                    for part in re.split('(' + spec.pattern + ')', f)) + '$')
+           for f in translated if '%' in f]
+# (the first walk's names, and the network screens' names)
+names = {'Alpha (USA)', 'Alpha', 'NES', 'FDS', 'Famicom Disk System', 'L1', 'R1', 'OPTIONS', 'English', 'Español',
+         'Português (Brasil)', 'Français', 'Deutsch', 'S-Video', 'RGB', '4:3', '16:9', 'Mesen', 'Dendy',
+         'SMB (Windows, Samba, NAS)', 'NFS', 'USB'}
+for line in (open(sys.argv[1], encoding='utf-8') if os.path.exists(sys.argv[1]) else []):
+    t = line.rstrip('\n')
+    if t in translated or t in names or not re.search('[A-Za-z]{2}', t) or re.fullmatch(r'[\d%. ]+', t):
+        continue
+    if any(f.match(t) for f in formats):
+        continue
+    if t.startswith('↣') or re.match(r'(NES|FDS|Famicom Disk System) {3}', t):
+        continue
+    print(t)
+PY
+	expect "[ $rc = 0 ] && grep -q 'network tab: scan again' $T/root/logs/boot.log && [ -s $T/missing.txt ] && [ ! -s $T/untranslated.txt ]" "language $L: the network screens and the Network tab are translated ($(head -c 200 $T/untranslated.txt | tr '\n' '|'))"
+	nosan "$T"
+done
 # Settings, Language (first row of SYSTEM: Up three times from Shader: Back, Debug logs, Language), Right: Spanish
 T=$(newroot t28s)
 rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;60:$UP;62:0;70:$UP;72:0;80:$RIGHT;82:0;100:$CIRCLE;102:0;110:$OPTIONS;112:0;120:$CROSS;122:0" "")
@@ -951,6 +1005,386 @@ T=$(newroot t28en)
 $ROM "$T/root/roms/test.nes" >/dev/null
 rc=$(FCEUMM_HOST_I18N_MISSING=$T/missing.txt run "$T" "0:0;$(QUITAT 100)" "" "$T/root/roms/test.nes")
 expect "[ $rc = 0 ] && [ ! -s $T/missing.txt ] && grep -q '^language=0$' $T/root/fceumm-ps5.ini" "English by default (language=0): nothing is looked up"
+fi
+
+# ---- network shares (1.1): netfs, games on a share, the Network shares screen, the shelf's storage tabs -------------
+# From Beetle PCE PS5 1.1.1's groups 31-35 (Genesis Plus GX PS5 2.1.1's, thatboialex's design in Snes9x PS5). The host
+# build's share backend (host/netfs_dirbackend.cpp) answers every smb:// and nfs:// address with the folder
+# FCEUMM_HOST_NETFS_DIR names.
+
+if want 29; then
+echo "== 29. netfs: share addresses and redaction, routing, the libc --wrap layer, minizip and zlib on a share, the watchdog (in-memory share)"
+NETFS_OUT=$(ASAN_OPTIONS=detect_leaks=1 timeout 120 "$PWD/build/host/test-netfs" 2>&1)
+NETFS_RC=$?
+echo "$NETFS_OUT" | tail -3 | sed 's/^/  /'
+expect "[ $NETFS_RC = 0 ]" "netfs: every check passes"
+expect "! echo \"\$NETFS_OUT\" | grep -q 'runtime error\|Sanitizer'" "no sanitizer reports"
+fi
+
+if want 30; then
+echo "== 30. games on a share: on the shelf, an NES game and a disk started from it (read whole), saves and the BIOS on the console"
+# a. an NES game on an SMB share: listed, started from the shelf (read whole), its save state on the console
+T=$(newroot t30)
+mkdir -p "$T/share/NES"
+$ROM "$T/share/NES/Net Game (USA).nes" >/dev/null
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;150:$CROSS;152:0;280:$CROSS;320:0;340:$L2UP;345:0;$(QUITAT 400)" "300")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q '\[net\] 1 share(s) in shares.txt' $T/root/logs/boot.log" "shares.txt was read"
+expect "grep -q '\[net\] Connected to smb://10.0.0.5/games' $T/root/logs/boot.log" "the share connected"
+expect "grep -q 'loading /smb/10.0.0.5/games/NES/Net Game (USA).nes' $T/root/logs/boot.log && grep -q 'running \"Net Game (USA)\" (NES)' $T/root/logs/boot.log" "the game was started from the share"
+expect "$CHECK $T/dump/flip00300.ppm 960 540 green >/dev/null" "it runs (Cross -> green)"
+expect "[ -f '$T/root/states/NES/Net Game (USA).state1' ] && [ ! -e '$T/share/states' ] && [ \$(find $T/share -type f | wc -l) = 1 ]" "its state is on the console, nothing is written to the share"
+expect "grep -q 'last_rom=/smb/10.0.0.5/games/NES/Net Game (USA).nes' $T/root/fceumm-ps5.ini" "the shelf remembers it"
+nosan "$T"
+# a power cycle (pause menu, Down nine times) starts the game again from memory: the share is not read again
+rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;150:$CROSS;152:0;$(SEQ 280 $L3R3 $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $CROSS);420:$CROSS;460:0;$(QUITAT 500)" "450")
+expect "[ $rc = 0 ] && grep -q 'power cycle: Net Game (USA).nes kept in memory, not read again' $T/root/logs/boot.log && [ \$(grep -c 'running \"Net Game (USA)\"' $T/root/logs/boot.log) = 2 ]" "a power cycle restarts the game from memory, not from the share"
+expect "$CHECK $T/dump/flip00450.ppm 960 540 green >/dev/null" "and it runs (Cross -> green)"
+nosan "$T"
+# b. a Famicom Disk System disk on an NFS share, disksys.rom on the console: started from the share
+T=$(newroot t30fds)
+mkdir -p "$T/root/bios" "$T/share/FDS"
+head -c 8192 /dev/zero >"$T/root/bios/disksys.rom"
+$ROM "$T/share/FDS/Disk (Japan).fds" >/dev/null
+echo "nfs://10.0.0.5/export/nes" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=600 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;150:$CROSS;152:0;$(QUITAT 300)" "")
+expect "[ $rc = 0 ] && grep -q 'loading /nfs/10.0.0.5/export/nes/FDS/Disk (Japan).fds' $T/root/logs/boot.log && grep -q 'running \"Disk (Japan)\" (Famicom Disk System)' $T/root/logs/boot.log" "a disk on a share starts as a Famicom Disk System game (its BIOS from the console)"
+expect "[ \$(find $T/share -type f | wc -l) = 1 ]" "nothing is written to the share"
+nosan "$T"
+# the same with 200 ms on every read, as a slow link: the game is read whole before it starts, and runs
+T=$(newroot t30slow)
+mkdir -p "$T/share"
+$ROM "$T/share/Slow (USA).nes" >/dev/null
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_NETFS_DELAY_MS=200 FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;200:$CROSS;202:0;400:$CROSS;440:0;$(QUITAT 500)" "420")
+expect "[ $rc = 0 ] && grep -q 'running \"Slow (USA)\" (NES)' $T/root/logs/boot.log && $CHECK $T/dump/flip00420.ppm 960 540 green >/dev/null" "a slow link (200 ms a read): the game starts and runs"
+expect "! grep -q 'in realtime' $T/root/logs/boot.log" "and the running game never waits for the share"
+nosan "$T"
+# c. a share that does not connect: the shelf still works and says why
+T=$(newroot t30f)
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_HOST_NETFS_DIR="$T/nothing" run "$T" "0:0;100:$OPTIONS;102:0;110:$CROSS;112:0" "")
+expect "[ $rc = 0 ] && grep -q '\[games\] 0 ROM(s)' $T/root/logs/boot.log" "a share that does not connect leaves the shelf working"
+expect "grep -q '\[net\] The folder games is not on 10.0.0.5' $T/root/logs/boot.log" "and says why"
+nosan "$T"
+# d. shares.txt: written with its comments when missing; a bad line is named in the log, never its text
+T=$(newroot t30n)
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 40)" "")
+expect "[ $rc = 0 ] && grep -q '^# NES FCEUmm PS5 network shares' $T/root/shares.txt && ! grep -q '^smb://\|^nfs://' $T/root/shares.txt" "a commented shares.txt is written when there is none"
+printf 'smb://bob@10.0.0.5/games?password=Hunter2x\nftp://10.0.0.5/x?password=Hunter2y\n' >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_NETFS_DIR="$T/nothing" run "$T" "0:0;$(SHELFQUIT_AT 40)" "")
+expect "[ $rc = 0 ] && grep -q 'shares.txt line 2: ' $T/root/logs/boot.log" "a line that is not an address is named by its number"
+expect "! grep -rq 'Hunter2' $T/root/logs $T/out.txt" "no password in a log or on stdout"
+nosan "$T"
+fi
+
+if want 31; then
+echo "== 31. a game on a share with a made-up file name is named by its CRC in the background, its cover follows; a zip's system too"
+T=$(newroot t31)
+NESREPO=Nintendo_-_Nintendo_Entertainment_System
+mkdir -p "$T/srv/$NESREPO/Named_Boxarts" "$T/share/misc"
+python3 - "$T/srv/$NESREPO/Named_Boxarts" <<'PY'
+import sys
+from PIL import Image
+Image.new('RGB', (512, 357), (0, 255, 0)).save(sys.argv[1] + '/Tetris (USA).png')
+PY
+TETRIS=$(grep -P "^nes\t[0-9A-F]{8}\tTetris \(USA\)$" frontend/data/nointro.tsv | cut -f2 | head -1)
+$ROM "$T/share/tet.nes" >/dev/null
+python3 tests/forge_nes_crc.py "$T/share/tet.nes" $TETRIS >/dev/null
+# a disk in a zip, in a folder whose name says nothing: listed as an NES game until its zip is read
+$ROM "$T/disk.fds" >/dev/null
+python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w'); z.write(sys.argv[2],'Disk.fds'); z.close()" "$T/share/misc/disk.zip" "$T/disk.fds"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+PORT=18082
+(cd "$T/srv" && exec python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1) &
+SRVPID=$!
+sleep 1
+rc=$(OFFLINE= COVER_URL="http://127.0.0.1:$PORT/\${repo}/Named_Boxarts/\${name}.png" FCEUMM_HOST_REALTIME=1 MAXFLIPS=420 FCEUMM_HOST_NETFS_DIR="$T/share" \
+	run "$T" "0:0" "400")
+kill $SRVPID 2>/dev/null
+expect "grep -q '\[games\] naming 2 network ROM(s) by CRC' $T/root/logs/boot.log" "the pass was started for the two games the scan did not read"
+expect "grep -q 'tet.nes \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log" "the next scan names the game by its CRC"
+expect "grep -q 'misc/disk.zip \[nes\]' $T/root/logs/boot.log && grep -q 'misc/disk.zip \[fds\]' $T/root/logs/boot.log" "the zip moves to the Famicom Disk System once its directory was read"
+expect "grep -q '/smb/10.0.0.5/games/tet.nes' $T/root/covers/crc-cache.txt && grep -q '^sys:/smb/10.0.0.5/games/misc/disk.zip' $T/root/covers/crc-cache.txt" "both are kept for the next start"
+expect "[ -f '$T/root/covers/NES/Tetris (USA).png' ]" "the cover of the game named late was downloaded"
+nosan "$T"
+# the next start reads nothing over the network: the cache names both
+rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=200 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0" "")
+expect "[ \$(grep -c 'tet.nes \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log) -ge 1 ] && grep -q 'misc/disk.zip \[fds\]' $T/root/logs/boot.log && ! grep -q 'naming .* network ROM' $T/root/logs/boot.log" "the next start: named from the cache, no pass needed"
+nosan "$T"
+# a read error while the share stays connected (a link that drops, the watchdog, the shares connected again) is not the
+# file's fault: nothing is remembered, the zip stays on the shelf, and the next start reads both again
+T=$(newroot t31e)
+mkdir -p "$T/share/misc"
+$ROM "$T/share/tet.nes" >/dev/null
+python3 tests/forge_nes_crc.py "$T/share/tet.nes" $TETRIS >/dev/null
+$ROM "$T/disk.fds" >/dev/null
+python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w'); z.write(sys.argv[2],'Disk.fds'); z.close()" "$T/share/misc/disk.zip" "$T/disk.fds"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_NETFS_EIO=tet.nes,disk.zip FCEUMM_HOST_REALTIME=1 MAXFLIPS=400 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0" "")
+expect "grep -q 'network CRC pass: 2 ROM(s) read\$' $T/root/logs/boot.log" "read errors: the pass tried both"
+expect "! grep -q 'tet.nes.*fail' $T/root/covers/crc-cache.txt && ! grep -q '^sys:.*disk.zip' $T/root/covers/crc-cache.txt" "and remembered no failure"
+expect "[ \$(grep -c 'misc/disk.zip \[nes\]' $T/root/logs/boot.log) -ge 2 ]" "the zip is still on the shelf after the pass"
+nosan "$T"
+rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=400 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0" "")
+expect "grep -q 'tet.nes \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log && grep -q 'misc/disk.zip \[fds\]' $T/root/logs/boot.log" "the next start reads both again and names them"
+nosan "$T"
+# Settings (Triangle) while the pass reads a ROM (3 s a read): the pass stops first (Settings > Network shares may connect the
+# shares again, which needs no other netfs call running); the ROM it was reading is read again once Settings is left
+T=$(newroot t31s)
+mkdir -p "$T/share"
+$ROM "$T/share/tet.nes" >/dev/null
+python3 tests/forge_nes_crc.py "$T/share/tet.nes" $TETRIS >/dev/null
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_NETFS_DELAY_MS=3000 FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;60:$TRIANGLE;62:0;90:$CIRCLE;92:0" "")
+expect "grep -q 'network CRC pass: 0 ROM(s) read (stopped)' $T/root/logs/boot.log" "Settings stops the pass while it reads"
+expect "grep -q 'tet.nes \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log" "and, once Settings is left, the ROM it was reading is read again and named"
+nosan "$T"
+fi
+
+if want 32; then
+echo "== 32. the Network shares screen: add, change, test and remove a share with the on-screen keyboard (Settings, Network shares)"
+# tests/osk_pad.py turns the steps into a pad script (the keyboard's layout is its model). Settings is Triangle on the shelf; Up four
+# times from Shader reaches Network shares (Back, Debug logs, Language, Network shares). Every run ends: Circle twice,
+# OPTIONS, Cross.
+net_pad() { python3 tests/osk_pad.py 2>/dev/null; }
+net_quit='press CIRCLE 2
+press OPTIONS
+wait 8
+press CROSS'
+# a. a new share: server, share, folder with a space, user, a password that needs Shift and both kinds of symbols
+T=$(newroot t32)
+mkdir -p "$T/share"
+PAD=$(net_pad <<STEPS
+frame 40
+press TRIANGLE
+press UP 4
+press CROSS
+press CROSS
+field 10.0.0.5
+press DOWN
+field games
+press DOWN
+field NES Games
+press DOWN
+field jason
+press DOWN
+field Zq9@pw&1
+press DOWN 6
+press CROSS
+wait 20
+$net_quit
+STEPS
+)
+rc=$(FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "$PAD" "")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "[ \"\$(tail -n 1 $T/root/shares.txt)\" = 'smb://jason@10.0.0.5/games/NES%20Games?password=Zq9%40pw%261' ]" "the share is written as one escaped line"
+expect "grep -q '^# NES FCEUmm PS5 network shares' $T/root/shares.txt" "after the comments the app wrote"
+expect "grep -q '\[net\] shares.txt: saved smb://jason@10.0.0.5/games/NES%20Games' $T/root/logs/boot.log" "the log says what was saved"
+expect "grep -q '\[net\] Connected to smb://jason@10.0.0.5/games/NES%20Games' $T/root/logs/boot.log" "and the share connects at once, without a restart"
+expect "! grep -rqE 'Zq9|pw%26' $T/root/logs $T/out.txt" "the password is in no log and not on stdout"
+nosan "$T"
+# b. change one share (its note stays), test the connection, remove the other
+T=$(newroot t32b)
+mkdir -p "$T/share/Sub" && echo x >"$T/share/a.nes"
+printf '# my shares\nsmb://old/x   # my note\nnfs://nas/export/nes\n' >"$T/root/shares.txt"
+PAD=$(net_pad <<STEPS
+frame 40
+press TRIANGLE
+press UP 4
+press CROSS
+press CROSS
+press DOWN 3
+field bob
+press DOWN 6
+press CROSS
+wait 120
+press DOWN
+press CROSS
+wait 20
+press DOWN
+press CROSS
+press DOWN 7
+press CROSS
+wait 8
+press UP
+press CROSS
+wait 20
+$net_quit
+STEPS
+)
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "$PAD" "")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "[ \"\$(cat $T/root/shares.txt)\" = \"\$(printf '# my shares\nsmb://bob@old/x   # my note')\" ]" "one line changed (note kept), the other was removed, the comment stays"
+expect "grep -q '\[net\] test of smb://bob@old/x: Connected. The folder has 1 file and 1 folder.' $T/root/logs/boot.log" "Test connection reports what is in the folder"
+expect "grep -q '\[net\] shares.txt: removed nfs://nas/export/nes' $T/root/logs/boot.log" "the removal is logged"
+nosan "$T"
+# c. Save with nothing filled in changes nothing
+T=$(newroot t32c)
+PAD=$(net_pad <<STEPS
+frame 40
+press TRIANGLE
+press UP 4
+press CROSS
+press CROSS
+press DOWN 10
+press CROSS
+wait 8
+press CIRCLE
+$net_quit
+STEPS
+)
+rc=$(run "$T" "$PAD" "")
+expect "[ $rc = 0 ] && ! grep -q '^smb://\|^nfs://' $T/root/shares.txt" "an empty form is not saved (and Circle on a form with no changes leaves it at once)"
+nosan "$T"
+# d. over a game (Settings from the pause menu) the row is there but can't be chosen (the game may be reading from a share):
+# the pause menu: Down seven times to Settings; there, Up four times from Shader passes Network shares and lands on
+# Download covers, which Cross switches off; Circle, then Down four times to Quit
+T=$(newroot t32d)
+$ROM "$T/root/roms/test.nes" >/dev/null
+rc=$(MAXFLIPS=900 run "$T" "0:0;$(SEQ 100 $L3R3 $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $CROSS $UP $UP $UP $UP $CROSS $CIRCLE $DOWN $DOWN $DOWN $DOWN $CROSS)" "" "$T/root/roms/test.nes")
+expect "[ $rc = 0 ] && grep -q '^covers_download=0' $T/root/fceumm-ps5.ini" "over a game: Network shares is skipped (Up four times reaches Download covers)"
+nosan "$T"
+fi
+
+if want 33; then
+echo "== 33. shelf tabs: Internal and Network apart, L1 / R1 between them, the last tab kept, Square on Network scans again; L2 / R2 skip 10"
+# The tab bar sits at the top: the open tab's pill is the accent colour (78,62,170), the other one dark (32,30,58); (795,30) is
+# inside the Internal pill and (1120,30) inside the Network pill (above their names). The share connects within a few seconds of wall time.
+tab_pills() { # dump the active tab: Internal | Network
+	local f=$1 on=$2
+	if [ "$on" = Internal ]; then
+		$CHECK "$f" 795 30 78 62 170 >/dev/null && $CHECK "$f" 1120 30 32 30 58 >/dev/null
+	else
+		$CHECK "$f" 795 30 32 30 58 >/dev/null && $CHECK "$f" 1120 30 78 62 170 >/dev/null
+	fi
+}
+T=$(newroot t33)
+mkdir -p "$T/share"
+$ROM "$T/root/roms/Local Game (USA).nes" >/dev/null
+$ROM "$T/share/Net Game (USA).nes" >/dev/null
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;220:$R1;222:0;300:$SQUARE;302:0;380:$L1;382:0;420:$OPTIONS;422:0;430:$CROSS;432:0" "200,260,400")
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "tab_pills $T/dump/flip00200.ppm Internal" "the shelf opens on the Internal tab"
+expect "tab_pills $T/dump/flip00260.ppm Network" "R1 goes to the Network tab"
+expect "tab_pills $T/dump/flip00400.ppm Internal" "L1 comes back"
+expect "grep -q '\[shelf\] tab Network: 1 game' $T/root/logs/boot.log" "the Network tab holds the game on the share"
+expect "grep -q '\[shelf\] tab Internal: 1 game' $T/root/logs/boot.log" "and the Internal tab only the local one"
+expect "grep -q '\[shelf\] network tab: scan again\$' $T/root/logs/boot.log" "Square on the Network tab scans again"
+expect "[ \$(grep -c '\[games\] 2 ROM' $T/root/logs/boot.log) -ge 2 ]" "and the scan found both games again"
+expect "awk '/network tab: scan again/{f=1;next} f&&/\[covers\]/{c++} f&&/\[shelf\] tab /{exit} END{exit !(f && c == 0)}' $T/root/logs/boot.log" "the same games after the scan: the covers are not loaded again"
+expect "grep -q 'last_tab=0' $T/root/fceumm-ps5.ini" "the tab left on is kept (Internal)"
+nosan "$T"
+T=$(newroot t33b)
+mkdir -p "$T/share"
+$ROM "$T/root/roms/Local Game (USA).nes" >/dev/null
+$ROM "$T/share/Net Game (USA).nes" >/dev/null
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+echo "last_tab=2" >>"$T/root/fceumm-ps5.ini"
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;300:$OPTIONS;302:0;310:$CROSS;312:0" "40,250")
+expect "[ $rc = 0 ] && tab_pills $T/dump/flip00040.ppm Network" "with last_tab=2 and a share set up the shelf opens on Network, before the share is up"
+expect "tab_pills $T/dump/flip00250.ppm Network" "and stays there when its games arrive"
+expect "grep -q 'last_tab=2' $T/root/fceumm-ps5.ini" "and keeps the tab on quit"
+T=$(newroot t33c)
+$ROM "$T/root/roms/Local Game (USA).nes" >/dev/null
+echo "last_tab=2" >>"$T/root/fceumm-ps5.ini"
+rc=$(run "$T" "0:0;60:$R1;62:0;70:$SQUARE;72:0;90:$L1;92:0;120:$OPTIONS;122:0;130:$CROSS;132:0" "40,80,110")
+expect "[ $rc = 0 ] && tab_pills $T/dump/flip00040.ppm Internal" "last_tab=2 without a share set up opens on the games instead"
+expect "tab_pills $T/dump/flip00080.ppm Network && grep -q '\[shelf\] tab Network: 0 game' $T/root/logs/boot.log" "R1 shows the empty Network tab"
+expect "grep -q '\[shelf\] network tab: scan again\$' $T/root/logs/boot.log" "Square on it scans again, with no share to ask"
+expect "tab_pills $T/dump/flip00110.ppm Internal && grep -q 'last_tab=0' $T/root/fceumm-ps5.ini" "L1 goes back and the tab is kept"
+nosan "$T"
+T=$(newroot t33d)
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_HOST_NETFS_DIR="$T/nothing" run "$T" "0:0;150:$SQUARE;152:0;330:$OPTIONS;332:0;340:$CROSS;342:0" "100")
+expect "[ $rc = 0 ] && tab_pills $T/dump/flip00100.ppm Network" "a share that is down leaves a shelf with no games on the Network tab"
+expect "grep -q '\[shelf\] network tab: scan again, reconnecting' $T/root/logs/boot.log" "Square connects it again"
+expect "[ \$(grep -c 'The folder games is not on 10.0.0.5' $T/root/logs/boot.log) -ge 2 ]" "and says why each time"
+nosan "$T"
+# the letter tabs (Up / Down) work inside the storage tab; L2 / R2 skip 10 games (L1 / R1 did before 1.1)
+T=$(newroot t33e)
+mkdir -p "$T/share"
+for i in $(seq -w 1 12); do $ROM "$T/root/roms/Game $i (USA).nes" >/dev/null; done
+$ROM "$T/root/roms/Zeta (USA).nes" >/dev/null
+$ROM "$T/share/Net Game (USA).nes" >/dev/null
+$ROM "$T/share/Zap (USA).nes" >/dev/null
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+# (back to the shelf from a game: the pause menu, Up twice, Cross)
+rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;150:$R2;152:0;170:$CROSS;172:0;$(SEQ 230 $L3R3 $UP $UP $CROSS);320:$R1;322:0;340:$DOWN;342:0;380:$CROSS;382:0;$(QUITAT 480)" "")
+expect "[ $rc = 0 ] && grep -q 'loading .*/Game 11 (USA).nes' $T/root/logs/boot.log" "R2 skips 10 games (Game 01 -> Game 11)"
+expect "grep -q '\[shelf\] tab N: 1 game' $T/root/logs/boot.log && grep -q 'loading /smb/10.0.0.5/games/Net Game (USA).nes' $T/root/logs/boot.log" "on the Network tab, Down shows its letter N, whose game runs"
+nosan "$T"
+fi
+
+# ---- 7-Zip (1.1): NES games and disks inside a .7z (frontend/fe_7z.cpp, the LZMA SDK's C decoder); the archives are tests/7z/
+if want 34; then
+echo "== 34. 7z: the reader on every kind of archive; a .7z on the shelf named and covered as its .zip twin, started, run; a disk in a .7z; what is refused, and why; a .7z on a share"
+SZ_OUT=$(ASAN_OPTIONS=detect_leaks=1 timeout 120 "$PWD/build/host/test-7z" "$PWD/tests/7z" "$PWD/build/host/test-7z-card.nes" 2>&1)
+SZ_RC=$?
+echo "$SZ_OUT" | tail -3 | sed 's/^/  /'
+expect "[ $SZ_RC = 0 ]" "the 7z reader: LZMA, LZMA2, PPMd, BCJ, Delta, a solid block, the directory's CRCs; empty, truncated, corrupt, BZip2, AES, too big: every check passes"
+expect "! echo \"\$SZ_OUT\" | grep -q 'runtime error\|Sanitizer'" "no sanitizer reports"
+# a. the same game as a .7z and as a .zip: both named by the CRC their directory keeps, one cover for both; the .7z runs.
+# A third, whose directory CRC the table doesn't know (its header differs), is unpacked and named by the CRC past its header
+T=$(newroot t34)
+NESREPO=Nintendo_-_Nintendo_Entertainment_System
+mkdir -p "$T/srv/$NESREPO/Named_Boxarts" "$T/root/roms/NES"
+python3 -c "from PIL import Image; import sys; Image.new('RGB', (512, 357), (0, 255, 0)).save(sys.argv[1])" "$T/srv/$NESREPO/Named_Boxarts/Tetris (USA).png"
+cp tests/7z/named.7z "$T/root/roms/NES/seven.7z"
+cp tests/7z/header.7z "$T/root/roms/NES/unpacked.7z"
+$ROM "$T/splat.nes" >/dev/null
+python3 tests/forge_crc.py "$T/splat.nes" $(grep -P "^nes\t[0-9A-F]{8}\tTetris \(USA\)$" frontend/data/nointro.tsv | cut -f2 | head -1) >/dev/null
+python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED); z.write(sys.argv[2],'splat.nes'); z.close()" "$T/root/roms/NES/zipped.zip" "$T/splat.nes"
+PORT=18083
+(cd "$T/srv" && exec python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1) &
+SRVPID=$!
+sleep 1
+# the shelf: the three games (same title: by path, seven.7z first); the 7z is selected, Cross starts it
+rc=$(OFFLINE= COVER_URL="http://127.0.0.1:$PORT/\${repo}/Named_Boxarts/\${name}.png" FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 run "$T" \
+	"0:0;150:$CROSS;152:0;280:$CROSS;320:0;$(QUITAT 400)" "140,300")
+kill $SRVPID 2>/dev/null
+expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
+expect "grep -q 'NES/seven.7z \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log && grep -q 'NES/zipped.zip \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log" "the .7z is named by its CRC, as its .zip twin"
+expect "grep -q 'NES/unpacked.7z \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log" "a .7z whose directory CRC the table doesn't know: unpacked, named by the CRC past the header"
+expect "[ -f '$T/root/covers/NES/Tetris (USA).png' ] && $CHECK $T/dump/flip00140.ppm 960 420 0 255 0 >/dev/null" "and shows the cover the .zip gets"
+expect "grep -q 'loading .*seven.7z -> splat.nes' $T/root/logs/boot.log && grep -q 'running \"seven\" (NES)' $T/root/logs/boot.log" "the game inside the .7z is loaded"
+expect "$CHECK $T/dump/flip00300.ppm 960 540 green >/dev/null" "and runs as the .zip's does (Cross -> green)"
+expect "grep -q '^sys:.*seven.7z' $T/root/covers/crc-cache.txt" "the .7z's system is cached as a zip's"
+nosan "$T"
+# b. a Famicom Disk System disk after a text file in the archive: its system from the disk inside; started as one
+T=$(newroot t34b)
+mkdir -p "$T/root/bios" && head -c 8192 /dev/zero >"$T/root/bios/disksys.rom"
+cp tests/7z/fds.7z "$T/root/roms/disk.7z"
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 60)" "")
+expect "[ $rc = 0 ] && grep -q 'disk.7z \[fds\]' $T/root/logs/boot.log" "a .fds in a .7z is listed as a Famicom Disk System game"
+rc=$(run "$T" "0:0;$(QUITAT 200)" "" "$T/root/roms/disk.7z")
+expect "[ $rc = 0 ] && grep -q 'loading .*disk.7z -> Disk (Japan).fds' $T/root/logs/boot.log && grep -q 'running \"disk\" (Famicom Disk System)' $T/root/logs/boot.log" "and starts as one"
+nosan "$T"
+# c. what the shelf leaves out (nothing it lists, no game, a broken directory) and what says why it can't start
+T=$(newroot t34c)
+for f in other nogame empty truncated bzip2 aes aeshdr big corrupt lzma; do cp tests/7z/$f.7z "$T/root/roms/$f.7z"; done
+rc=$(run "$T" "0:0;$(SHELFQUIT_AT 60)" "")
+expect "[ $rc = 0 ] && grep -q '\[games\] 5 ROM(s)' $T/root/logs/boot.log" "the shelf lists the five archives with a game in a readable directory"
+expect "! grep -q 'other.7z \[\|nogame.7z \[\|empty.7z \[\|truncated.7z \[\|aeshdr.7z \[' $T/root/logs/boot.log" "an archive with nothing the app lists, with no game, a cut or name-encrypted one: not listed"
+nosan "$T"
+for f in bzip2:"can't unpack" aes:"is encrypted" big:"too big" corrupt:"damaged"; do
+	n=${f%%:*}; why=${f#*:}
+	rc=$(MAXFLIPS=300 run "$T" "0:0;60:$CROSS;62:0" "50" "$T/root/roms/$n.7z")
+	expect "grep -q \"could not start .*$n.7z: .*$why\" $T/root/logs/boot.log && [ -f $T/dump/flip00050.ppm ]" "$n.7z: not started; the screen says why ($why)"
+	nosan "$T"
+done
+# d. a .7z on a share: listed before it is opened (its folder's name), named by its CRC in the background, started from the share
+T=$(newroot t34d)
+mkdir -p "$T/share/NES"
+cp tests/7z/named.7z "$T/share/NES/seven.7z"
+echo "smb://10.0.0.5/games" >"$T/root/shares.txt"
+rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 FCEUMM_HOST_NETFS_DIR="$T/share" run "$T" "0:0;300:$CROSS;302:0;430:$CROSS;470:0;$(QUITAT 520)" "450")
+expect "[ $rc = 0 ] && grep -q '\[games\] naming 1 network ROM(s) by CRC' $T/root/logs/boot.log" "the .7z on the share is named in the background (the scan doesn't open it)"
+expect "grep -q 'NES/seven.7z \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log" "by the CRC its directory keeps"
+expect "grep -q 'loading /smb/10.0.0.5/games/NES/seven.7z -> splat.nes' $T/root/logs/boot.log && $CHECK $T/dump/flip00450.ppm 960 540 green >/dev/null" "it starts from the share and runs"
+nosan "$T"
 fi
 
 echo

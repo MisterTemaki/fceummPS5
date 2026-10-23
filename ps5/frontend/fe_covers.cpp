@@ -237,14 +237,39 @@ std::shared_ptr<CoverTex> Placeholder(const GameInfo& g)
 			px[size_t(y) * w + i] = edge;
 			px[size_t(y) * w + w - 1 - i] = edge;
 		}
-	// four coloured buttons, top right
-	const uint32_t dots[4] = {Pack(225, 60, 70), Pack(240, 200, 60), Pack(70, 180, 90), Pack(70, 110, 230)};
-	const int cx[4] = {w - 130, w - 95, w - 60, w - 95}, cy[4] = {80, 50, 80, 110};
-	for (int k = 0; k < 4; k++)
-		for (int y = -14; y <= 14; y++)
-			for (int x = -14; x <= 14; x++)
-				if (x * x + y * y <= 196)
-					px[size_t(cy[k] + y) * w + cx[k] + x] = dots[k];
+	// top right, the NES pad in brief: a light grey plate, two small pill buttons (Select, Start) on it and a dark panel
+	// with the two round red buttons (B, A) (plain shapes, no logo)
+	{
+		const uint32_t plate = Pack(198, 198, 208), pill = Pack(60, 60, 72), panel = Pack(44, 44, 54),
+					   button = Pack(186, 32, 40), shine = Pack(232, 118, 118);
+		auto disc = [&](int cx, int cy, int rad, uint32_t c) {
+			for (int y = -rad; y <= rad; y++)
+				for (int x = -rad; x <= rad; x++)
+					if (x * x + y * y <= rad * rad)
+						px[size_t(cy + y) * w + cx + x] = c;
+		};
+		// a rectangle with rounded corners
+		auto box = [&](int left, int top, int right, int bottom, int r, uint32_t c) {
+			for (int y = top; y <= bottom; y++)
+				for (int x = left; x <= right; x++)
+				{
+					const int dx = x < left + r ? left + r - x : x > right - r ? x - (right - r) : 0;
+					const int dy = y < top + r ? top + r - y : y > bottom - r ? y - (bottom - r) : 0;
+					if (dx * dx + dy * dy <= r * r)
+						px[size_t(y) * w + x] = c;
+				}
+		};
+		box(w - 230, 46, w - 30, 114, 10, plate);
+		box(w - 140, 56, w - 36, 104, 8, panel);
+		for (int cx : {w - 200, w - 172}) // Select, Start
+			for (int k = -7; k <= 7; k++)
+				disc(cx + k, 86, 5, pill);
+		for (int cx : {w - 110, w - 62}) // B, A
+		{
+			disc(cx, 80, 16, button);
+			disc(cx - 5, 75, 4, shine);
+		}
+	}
 
 	Canvas canvas{px.data(), w, h, w};
 	// the title, word-wrapped, up to 4 lines
@@ -365,8 +390,8 @@ std::vector<WantedCover> MissingCovers(const std::vector<GameInfo>& games)
 		if (!own.empty() && own != cache)
 			continue; // your own cover (a ROM named as its official name shares the downloaded cover's file)
 		const std::string dir = g.path.substr(0, g.path.find_last_of('/'));
-		if (!FindWithExts(dir + "/" + g.file_base).empty())
-			continue; // a cover beside the ROM
+		if (!g.on_network && !FindWithExts(dir + "/" + g.file_base).empty())
+			continue; // a cover beside the ROM (not looked for on a share: see Load)
 		bool dup = false;
 		for (const WantedCover& w : out)
 			dup = dup || w.file == file;
@@ -403,8 +428,8 @@ bool CoverService::NeedsDownload(int i) const
 	if (!own.empty() && own != cache)
 		return false; // your own cover, named after the ROM (not the downloaded one, when the names are the same)
 	const std::string dir = g.path.substr(0, g.path.find_last_of('/'));
-	if (!FindWithExts(dir + "/" + g.file_base).empty())
-		return false; // a picture beside the ROM is used before a download
+	if (!g.on_network && !FindWithExts(dir + "/" + g.file_base).empty())
+		return false; // a picture beside the ROM is used before a download (not looked for on a share: see Load)
 	if (Exists(RefetchMarker(cache)))
 		return true; // asked for again (Square)
 	return !NonEmptyFile(cache) && !RecentlyMissing(cache.substr(0, cache.size() - 4) + ".missing");
@@ -548,7 +573,9 @@ CoverPtr CoverService::Load(int i, bool* downloaded)
 	if (!manual.empty())
 		cands.push_back({manual, "manual"});
 	const std::string dir = g.path.substr(0, g.path.find_last_of('/'));
-	const std::string beside = FindWithExts(dir + "/" + g.file_base);
+	// not beside a game on a share: this thread would make network calls while Settings may reload the shares (netfs
+	// reloads only when no other call is running); the covers of network games are kept on the console
+	const std::string beside = g.on_network ? std::string() : FindWithExts(dir + "/" + g.file_base);
 	if (!beside.empty())
 		cands.push_back({beside, "beside"});
 	const std::string cache = CachePath(i);

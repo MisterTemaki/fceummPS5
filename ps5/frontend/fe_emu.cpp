@@ -31,6 +31,8 @@
 
 #include "libretro.h"
 
+#include "netfs.h"
+
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -213,18 +215,29 @@ bool FileExists(const std::string& p)
 	return stat(p.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
-bool ReadFile(const std::string& path, std::vector<uint8_t>& out)
+// The whole file, or false: one bigger than max_size is refused before anything is read, and a read that stops short
+// or fails (a share that drops mid-read) is a failure, not a cut file.
+bool ReadFile(const std::string& path, std::vector<uint8_t>& out, uint64_t max_size = 256u << 20)
 {
+	out.clear();
 	FILE* f = fopen(path.c_str(), "rb");
 	if (!f)
 		return false;
-	out.clear();
-	uint8_t buf[65536];
-	size_t n;
-	while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
-		out.insert(out.end(), buf, buf + n);
+	off_t size = -1;
+	if (fseeko(f, 0, SEEK_END) == 0)
+		size = ftello(f);
+	if (size < 0 || uint64_t(size) > max_size || fseeko(f, 0, SEEK_SET) != 0)
+	{
+		fclose(f);
+		return false;
+	}
+	out.resize(size_t(size));
+	const size_t n = size ? fread(out.data(), 1, out.size(), f) : 0;
+	const bool ok = n == out.size() && ferror(f) == 0;
 	fclose(f);
-	return true;
+	if (!ok)
+		out.clear();
+	return ok;
 }
 
 // data -> path.part, flushed to the disk (fsync) and closed without error, then renamed over path: the old file or
@@ -261,7 +274,12 @@ struct State
 	bool loaded = false;
 	std::string path, name, dir, ext; // the game; ext without the dot
 	fe::System system = fe::System::Nes;
-	std::vector<uint8_t> rom; // the game's file (or the ROM in its .zip), its header corrected (fe_nesdb.h)
+	std::vector<uint8_t> rom; // the game's file (or the ROM in its .zip or .7z), its header corrected (fe_nesdb.h)
+	std::vector<uint8_t> file_data; // the same as it was read, before the header correction: what a power cycle starts from
+	std::string inner;              // the game's name inside its archive ("" for a plain file)
+	// what a power cycle hands to the LoadGame it calls: the game already in memory, not read again (from a share)
+	std::vector<uint8_t> kept_rom;
+	std::string kept_rom_path, kept_inner;
 	retro_game_info_ext info_ext = {};
 	std::string sys_dir, save_dir;
 
@@ -885,29 +903,49 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.rom.clear();
 	g.info_ext = retro_game_info_ext();
 
-	// the game is read here (from its .zip, or the file itself) and handed to FCEUmm in memory: its header can then be
-	// corrected first (fe_nesdb.h)
+	// the game is read here (from its .zip or .7z, or the file itself) and handed to FCEUmm in memory: its header can
+	// then be corrected first (fe_nesdb.h). A game on a share is read whole here too: nothing streams while it runs.
+	// netfs_prepare_game: a game on a share has its folder listed first (nothing for any other path); it is let go
+	// again (netfs_end_game) if the game doesn't start
+	netfs_prepare_game(path);
 	std::string inner;
-	if (ext == ".zip")
+	if (!g.kept_rom.empty() && g.kept_rom_path == path)
 	{
-		if (!fe::ReadFromZip(path, &inner, &g.rom))
+		// a power cycle: the game read a moment ago (as it was read), not read again (from a share)
+		g.rom = std::move(g.kept_rom);
+		inner = g.kept_inner;
+		g.kept_rom.clear();
+		g.kept_rom_path.clear();
+		if (!inner.empty())
+			ext = ExtOf(inner);
+		OrbisLog("[emu] power cycle: %s kept in memory, not read again", file.c_str());
+	}
+	else if (fe::IsArchiveExt(ext))
+	{
+		std::string why;
+		if (!fe::ReadFromArchive(path, &inner, &g.rom, &why))
 		{
-			OrbisLog("[emu] could not start %s: no game inside the zip", path.c_str());
+			OrbisLog("[emu] could not start %s: %s", path.c_str(), why.empty() ? "no game inside the archive" : why.c_str());
 			if (error)
-				*error = Fmt(fe::T("There is no NES or Famicom Disk System game inside %s."), file.c_str());
+				*error = why.empty() ? Fmt(fe::T("There is no NES or Famicom Disk System game inside %s."), file.c_str())
+									 : Fmt(fe::T("NES FCEUmm PS5 could not unpack %s."), file.c_str()) + " " + fe::T(why.c_str());
+			netfs_end_game();
 			g.path.clear();
 			return false;
 		}
 		ext = ExtOf(inner);
 	}
-	else if (!ReadFile(path, g.rom) || g.rom.empty())
+	else if (!ReadFile(path, g.rom, 64u << 20) || g.rom.empty())
 	{
 		OrbisLog("[emu] could not start %s: can't read it", path.c_str());
 		if (error)
 			*error = Fmt(fe::T("NES FCEUmm PS5 could not read %s."), file.c_str());
+		netfs_end_game();
 		g.path.clear();
 		return false;
 	}
+	g.inner = inner;
+	g.file_data = g.rom;
 	if (!fe::SystemForExt(ext, &g.system))
 		g.system = fe::System::Nes;
 	g.ext = ext.empty() ? "" : ext.substr(1);
@@ -918,8 +956,10 @@ bool LoadGame(const std::string& path, std::string* error)
 		OrbisLog("[emu] could not start %s: missing the Famicom Disk System BIOS", path.c_str());
 		if (error)
 			*error = Fmt(fe::T("Famicom Disk System games need its BIOS: disksys.rom. Copy it to %s/ and try again."), g.sys_dir.c_str());
+		netfs_end_game();
 		g.path.clear();
 		g.rom.clear();
+		g.file_data.clear();
 		return false;
 	}
 	std::string fixed;
@@ -950,11 +990,13 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.mute = false;
 	if (!retro_load_game(&gi))
 	{
+		netfs_end_game();
 		OrbisLog("[emu] could not start %s", path.c_str());
 		if (error)
 			*error = Fmt(fe::T("FCEUmm could not load %s (a board it doesn't know, or a damaged file)."), file.c_str());
 		g.path.clear();
 		g.rom.clear();
+		g.file_data.clear();
 		return false;
 	}
 	g.pads_applied = -1;
@@ -984,6 +1026,9 @@ bool LoadGame(const std::string& path, std::string* error)
 	g.palette_frames = 3;
 	g.disk_insert_at = 0;
 	g.prev_extra = 0;
+	// realtime from here: the game was read whole above (from a share too); the naming pass of the shelf stops
+	// (netfs_realtime) while a game runs
+	netfs_set_realtime(true);
 	OrbisLog("[emu] running \"%s\" (%s), %.3f fps, %.0f Hz, aspect %.4f, state size %zu", g.name.c_str(),
 		SystemName().c_str(), g.fps, g.sample_rate, g.core_aspect, retro_serialize_size());
 	return true;
@@ -999,7 +1044,10 @@ void CloseGame()
 	g.loaded = false;
 	g.frame.clear();
 	g.rom.clear();
+	g.file_data.clear();
 	RewindClear();
+	netfs_set_realtime(false);
+	netfs_end_game();
 	OrbisLog("[emu] game closed");
 }
 
@@ -1129,9 +1177,16 @@ void PowerCycle()
 	if (!g.loaded)
 		return;
 	const std::string path = g.path;
+	// the game is kept in memory across the power cycle, as it was read (it may be on a share)
+	g.kept_rom = g.file_data;
+	g.kept_rom_path = path;
+	g.kept_inner = g.inner;
 	CloseGame();
 	std::string error;
-	if (!LoadGame(path, &error))
+	const bool ok = LoadGame(path, &error);
+	g.kept_rom.clear();
+	g.kept_rom_path.clear();
+	if (!ok)
 	{
 		OrbisLog("[emu] power cycle: %s", error.c_str());
 		ProsperoNotify(fe::T("NES FCEUmm PS5: the game could not be started again. %s"), error.c_str());

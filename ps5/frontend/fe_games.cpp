@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: MIT
 
 #include "fe_games.h"
+#include "fe_7z.h"
 
 #include "OrbisPaths.h"
+#include "ProsperoThread.h"
+#include "netfs.h"
 
 #include "third_party/unzip.h"
 
@@ -12,10 +15,13 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 
 #define FCEUMM_INCBIN(sym, path)                                                                                \
@@ -194,14 +200,23 @@ const Db& D()
 }
 
 // ---- CRC cache: path \t size \t mtime \t whole \t body ----
+// One per process: the scan and the pass that names network ROMs (NetNaming) share it, each under the lock.
 struct CrcCache
 {
+	std::mutex lock;
 	std::unordered_map<std::string, std::string> lines; // path -> "size\tmtime\twhole\tbody"
 	std::unordered_map<std::string, bool> seen; // the paths this scan looked up
 	bool dirty = false;
+	bool loaded = false;
 	std::string file;
-	void Load()
+	// A new scan: reads the file the first time, forgets which paths the last scan saw.
+	void Begin()
 	{
+		std::lock_guard<std::mutex> g(lock);
+		seen.clear();
+		if (loaded)
+			return;
+		loaded = true;
 		file = OrbisDir("covers") + "/crc-cache.txt";
 		FILE* f = fopen(file.c_str(), "r");
 		if (!f)
@@ -219,12 +234,18 @@ struct CrcCache
 		}
 		fclose(f);
 	}
-	void Save()
+	// prune: the scan's end drops the entries of files that are gone; the naming pass (mid-scan, maybe) keeps all.
+	void Save(bool prune)
 	{
-		// entries of files that are gone are dropped (a USB drive that isn't plugged in keeps its own)
-		for (auto it = lines.begin(); it != lines.end();)
+		std::lock_guard<std::mutex> g(lock);
+		// entries of files that are gone are dropped (a USB drive that isn't plugged in, or a share that is not
+		// connected, keeps its own)
+		for (auto it = lines.begin(); prune && it != lines.end();)
 		{
-			if (!seen.count(it->first) && it->first.rfind("/mnt/", 0) != 0)
+			const std::string& key = it->first;
+			const bool network =
+				netfs_is_network_path(key.c_str()) || (key.rfind("sys:", 0) == 0 && netfs_is_network_path(key.c_str() + 4));
+			if (!seen.count(key) && key.rfind("/mnt/", 0) != 0 && !network)
 			{
 				it = lines.erase(it);
 				dirty = true;
@@ -249,41 +270,108 @@ struct CrcCache
 		}
 		dirty = false;
 	}
+	void Put(const std::string& path, const std::string& val)
+	{
+		std::lock_guard<std::mutex> g(lock);
+		lines[path] = val;
+		dirty = true;
+	}
 };
 
-bool CachedCrc(CrcCache& cache, const std::string& path, uint32_t* whole, uint32_t* body)
+CrcCache& SharedCrcCache()
 {
-	cache.seen[path] = true;
+	static CrcCache* c = new CrcCache; // never freed: the naming pass may still run at exit
+	return *c;
+}
+
+// Whether a file that could not be used (no ROM in a zip, a CRC that could not be taken) may be remembered as such.
+// A local file: yes. A file on a share: only when it reads whole, without an error, from a share that is still
+// connected. A read error (the share dropped, the watchdog cut a slow request, Settings > Network shares connected
+// the shares again) is not the file's fault, and a remembered failure would hide the game, or keep it unnamed, until
+// the file changes; it is tried again at the next visit of the shelf instead.
+bool FailureIsTheFiles(const std::string& path, const struct stat& st, const std::atomic<bool>* cancel = nullptr)
+{
+	if (!netfs_is_network_path(path.c_str()))
+		return true;
+	if (st.st_size > 64LL * 1024 * 1024)
+		return false; // too big to read through each time it fails
+	FILE* f = fopen(path.c_str(), "rb");
+	if (!f)
+		return false;
+	std::vector<char> buf(1 << 20);
+	long long total = 0;
+	bool ok = true;
+	for (;;)
+	{
+		if (cancel && cancel->load())
+		{
+			ok = false;
+			break;
+		}
+		const size_t got = fread(buf.data(), 1, buf.size(), f);
+		total += (long long)got;
+		if (got < buf.size())
+			break;
+	}
+	ok = ok && ferror(f) == 0 && total == (long long)st.st_size;
+	fclose(f);
+	if (!ok)
+		return false;
+	for (const std::string& m : netfs_mount_points())
+		if (path.size() > m.size() && path.compare(0, m.size(), m) == 0 && path[m.size()] == '/')
+			return true;
+	return false;
+}
+
+// read: false for a ROM on a share, where only a CRC already in the cache is used (reading every ROM over the
+// network is what makes a scan slow). known (if given): the cache holds an answer for this file as it is now,
+// "could not be read" included.
+bool CachedCrc(CrcCache& cache, const std::string& path, uint32_t* whole, uint32_t* body, bool read = true, bool* known = nullptr)
+{
+	if (known)
+		*known = false;
+	{
+		std::lock_guard<std::mutex> g(cache.lock);
+		cache.seen[path] = true;
+	}
 	struct stat st = {};
 	if (stat(path.c_str(), &st) != 0)
 		return false;
 	char key[64];
 	snprintf(key, sizeof(key), "%lld\t%lld\t", (long long)st.st_size, (long long)st.st_mtime);
-	auto it = cache.lines.find(path);
-	if (it != cache.lines.end() && it->second.compare(0, strlen(key), key) == 0)
 	{
-		if (it->second.compare(strlen(key), std::string::npos, "fail") == 0)
-			return false; // couldn't be read last time, and hasn't changed since
-		unsigned a = 0, b = 0;
-		if (sscanf(it->second.c_str() + strlen(key), "%x\t%x", &a, &b) == 2)
+		std::lock_guard<std::mutex> g(cache.lock);
+		auto it = cache.lines.find(path);
+		if (it != cache.lines.end() && it->second.compare(0, strlen(key), key) == 0)
 		{
-			*whole = a;
-			*body = b;
-			return true;
+			if (known)
+				*known = true;
+			if (it->second.compare(strlen(key), std::string::npos, "fail") == 0)
+				return false; // couldn't be read last time, and hasn't changed since
+			unsigned a = 0, b = 0;
+			if (sscanf(it->second.c_str() + strlen(key), "%x\t%x", &a, &b) == 2)
+			{
+				*whole = a;
+				*body = b;
+				return true;
+			}
 		}
 	}
+	if (!read)
+		return false;
 	char val[96];
 	if (!RomCrc32(path, whole, body))
 	{
 		// unreadable (or an empty zip): remembered, so the next scans don't read it again until it changes
-		snprintf(val, sizeof(val), "%sfail", key);
-		cache.lines[path] = val;
-		cache.dirty = true;
+		if (FailureIsTheFiles(path, st))
+		{
+			snprintf(val, sizeof(val), "%sfail", key);
+			cache.Put(path, val);
+		}
 		return false;
 	}
 	snprintf(val, sizeof(val), "%s%08X\t%08X", key, *whole, *body);
-	cache.lines[path] = val;
-	cache.dirty = true;
+	cache.Put(path, val);
 	return true;
 }
 
@@ -299,7 +387,70 @@ size_t HeaderSize(const std::vector<uint8_t>& d, const std::string& ext)
 	return 0;
 }
 
-void Walk(const std::string& dir, int depth, bool usb, std::vector<GameInfo>& out)
+// An archive's system (the ROM inside it), from the cache while the archive hasn't changed: opening every zip at
+// every start is slow on a USB drive (and on a share) with a big library. "sys:<path>" -> "size\tmtime\t<system>".
+// read: false for an archive on a share (*known then says whether the cache had it; NetNaming opens it later).
+bool CachedArchiveSystem(CrcCache& cache, const std::string& path, const struct stat& st, System* out, bool read = true,
+	bool* known = nullptr, const std::atomic<bool>* cancel = nullptr)
+{
+	const std::string key = "sys:" + path;
+	char stamp[64];
+	snprintf(stamp, sizeof(stamp), "%lld\t%lld\t", (long long)st.st_size, (long long)st.st_mtime);
+	if (known)
+		*known = true;
+	{
+		std::lock_guard<std::mutex> g(cache.lock);
+		cache.seen[key] = true;
+		auto it = cache.lines.find(key);
+		if (it != cache.lines.end() && it->second.compare(0, strlen(stamp), stamp) == 0)
+		{
+			const std::string v = it->second.substr(strlen(stamp));
+			if (v == "none")
+				return false;
+			const int n = atoi(v.c_str());
+			if (n >= 0 && n < int(System::Count))
+			{
+				*out = System(n);
+				return true;
+			}
+		}
+	}
+	if (!read)
+	{
+		if (known)
+			*known = false;
+		return false;
+	}
+	bool certain = false;
+	const bool ok = ArchiveSystem(path, out, cancel, &certain);
+	// "none" hides the archive from the shelf until it changes: only when it is really the archive's (a 7z's directory
+	// says so, or FailureIsTheFiles)
+	if (ok || certain || FailureIsTheFiles(path, st, cancel))
+		cache.Put(key, std::string(stamp) + (ok ? std::to_string(int(*out)) : std::string("none")));
+	return ok;
+}
+
+// The system an archive on a share most likely holds before NetNaming has opened it: its folder's name (roms/FDS/,
+// "Famicom Disk System"...), else the NES.
+System GuessSystemFromFolder(const std::string& path)
+{
+	std::string dir = path.substr(0, path.find_last_of('/'));
+	for (int depth = 0; depth < 3 && !dir.empty(); depth++)
+	{
+		std::string name = dir.substr(dir.find_last_of('/') + 1), key;
+		for (char c : name)
+			if (isalnum(uint8_t(c)))
+				key += char(tolower(uint8_t(c)));
+		if (key == "fds" || key.find("disksystem") != std::string::npos || key.find("famicomdisk") != std::string::npos)
+			return System::Fds;
+		if (key == "nes" || key == "famicom" || key.find("nintendoentertainment") != std::string::npos)
+			return System::Nes;
+		dir = dir.substr(0, dir.find_last_of('/'));
+	}
+	return System::Nes;
+}
+
+void Walk(const std::string& dir, int depth, bool usb, bool net, std::vector<GameInfo>& out, CrcCache& cache)
 {
 	DIR* d = opendir(dir.c_str());
 	if (!d)
@@ -315,7 +466,7 @@ void Walk(const std::string& dir, int depth, bool usb, std::vector<GameInfo>& ou
 		if (S_ISDIR(st.st_mode))
 		{
 			if (depth < 4)
-				Walk(path, depth + 1, usb, out);
+				Walk(path, depth + 1, usb, net, out, cache);
 			continue;
 		}
 		if (!S_ISREG(st.st_mode))
@@ -325,10 +476,18 @@ void Walk(const std::string& dir, int depth, bool usb, std::vector<GameInfo>& ou
 		if (ext.empty())
 			continue;
 		GameInfo g;
-		if (ext == ".zip")
+		if (IsArchiveExt(ext))
 		{
-			if (!ArchiveSystem(path, &g.system))
-				continue;
+			// a zip (or a 7z) on a share is not opened by the scan: the cache knows its system, or its folder's name says it
+			// until NetNaming has looked inside
+			bool known = true;
+			if (!CachedArchiveSystem(cache, path, st, &g.system, !net, &known))
+			{
+				if (known)
+					continue;
+				g.system = GuessSystemFromFolder(path);
+				g.crc_pending = true;
+			}
 		}
 		else if (!SystemForExt(ext, &g.system))
 			continue;
@@ -336,6 +495,7 @@ void Walk(const std::string& dir, int depth, bool usb, std::vector<GameInfo>& ou
 		g.file_base = name.substr(0, name.size() - ext.size());
 		g.ext = ext;
 		g.on_usb = usb;
+		g.on_network = net;
 		out.push_back(std::move(g));
 	}
 	closedir(d);
@@ -425,30 +585,179 @@ bool FindInZip(unzFile z, F&& fn)
 }
 } // namespace
 
-bool ArchiveSystem(const std::string& path, System* out)
+bool IsArchiveExt(const std::string& ext)
 {
-	unzFile z = unzOpen(path.c_str());
-	if (!z)
-		return false;
-	const bool ok = FindInZip(z, [&](const std::string& name) {
-		System s;
-		if (!SystemForExt(ExtOf(name), &s))
-			return false;
-		*out = s;
-		return true;
-	});
-	unzClose(z);
-	return ok;
+	const std::string e = Lower(ext);
+	return e == ".zip" || e == ".7z";
 }
 
-bool ReadFromZip(const std::string& path, std::string* inner, std::vector<uint8_t>* data)
+namespace
 {
+// The biggest game accepted from an archive (the largest multicarts)
+constexpr uint64_t kMaxArchivedRom = 32u * 1024 * 1024;
+
+// A file of an archive that is a game we list: an NES game (.nes, .unf, .unif) or a Famicom Disk System disk (.fds,
+// a small file read whole like a cartridge).
+bool IsArchivedRom(const std::string& name, System* sys = nullptr)
+{
+	System s;
+	if (!SystemForExt(ExtOf(name), &s))
+		return false;
+	if (sys)
+		*sys = s;
+	return true;
+}
+
+// A .7z's first game, in the archive's order (a zip's rule): its index, or -1.
+int First7zRom(const sevenzip::Archive& a)
+{
+	const std::vector<sevenzip::Entry>& entries = a.Entries();
+	for (size_t i = 0; i < entries.size(); i++)
+		if (!entries[i].is_dir && IsArchivedRom(entries[i].name))
+			return int(i);
+	return -1;
+}
+
+// What went wrong with a .7z, for the player (English; T() translates it).
+const char* SevenZipWhy(sevenzip::Status st)
+{
+	switch (st)
+	{
+		case sevenzip::Status::Unsupported:
+			return "It is packed with a method NES FCEUmm PS5 can't unpack (LZMA, LZMA2 and PPMd work), or its names are encrypted.";
+		case sevenzip::Status::Encrypted: return "The archive is encrypted.";
+		case sevenzip::Status::TooBig:
+			return "The game, or the solid block it is packed in, is too big (32 MiB for a game, 64 MiB for a block).";
+		case sevenzip::Status::ReadError: return "The file could not be read.";
+		case sevenzip::Status::NoMemory: return "There is not enough memory to unpack it.";
+		default: return "The archive is damaged, or it is not a 7z archive.";
+	}
+}
+
+// A .7z that can't give a game for a reason of its own, read without an error: no game in its directory, encrypted
+// names, a method the decoder doesn't have, too big. Such an answer may be remembered without reading the whole file
+// again (FailureIsTheFiles); a read error, a cancel or a damaged-looking archive (which a cut read can make) may not.
+bool CertainFailure(sevenzip::Status st)
+{
+	return st == sevenzip::Status::Encrypted || st == sevenzip::Status::Unsupported || st == sevenzip::Status::TooBig;
+}
+
+// The CRC an archive stores for its game (a zip's and a 7z's directory both keep it): true, the name inside and that
+// CRC (of the whole file, its header included). RomCrc32 uses it only when the game table knows it (No-Intro lists NES
+// games with their header too); otherwise the game is unpacked and its CRC without the header taken, as for the same
+// file outside an archive.
+bool StoredArchiveCrc(const std::string& path, std::string* inner, uint32_t* crc, const std::atomic<bool>* cancel = nullptr)
+{
+	if (ExtOf(path) == ".7z")
+	{
+		sevenzip::Archive a;
+		if (a.Open(path, cancel) != sevenzip::Status::Ok)
+			return false;
+		const int i = First7zRom(a);
+		if (i < 0)
+			return false;
+		const sevenzip::Entry& e = a.Entries()[size_t(i)];
+		if (!e.has_crc || e.size == 0 || e.size > kMaxArchivedRom)
+			return false;
+		*inner = e.name;
+		*crc = e.crc;
+		return true;
+	}
 	unzFile z = unzOpen(path.c_str());
 	if (!z)
 		return false;
 	bool ok = FindInZip(z, [&](const std::string& name) {
-		System s;
-		if (!SystemForExt(ExtOf(name), &s))
+		if (!IsArchivedRom(name))
+			return false;
+		*inner = name;
+		return true;
+	});
+	if (ok)
+	{
+		unz_file_info info;
+		ok = unzGetCurrentFileInfo(z, &info, nullptr, 0, nullptr, 0, nullptr, 0) == UNZ_OK && info.uncompressed_size > 0 &&
+			 info.uncompressed_size <= kMaxArchivedRom;
+		if (ok)
+			*crc = uint32_t(info.crc);
+	}
+	unzClose(z);
+	return ok;
+}
+} // namespace
+
+bool ArchiveSystem(const std::string& path, System* out, const std::atomic<bool>* cancel, bool* certain)
+{
+	if (certain)
+		*certain = false;
+	if (ExtOf(path) == ".7z")
+	{
+		sevenzip::Archive a;
+		const sevenzip::Status st = a.Open(path, cancel);
+		if (st != sevenzip::Status::Ok)
+		{
+			if (certain)
+				*certain = CertainFailure(st);
+			return false;
+		}
+		const int i = First7zRom(a);
+		if (i < 0 && certain)
+			*certain = true; // its directory was read whole: no game in it
+		return i >= 0 && IsArchivedRom(a.Entries()[size_t(i)].name, out);
+	}
+	unzFile z = unzOpen(path.c_str());
+	if (!z)
+		return false;
+	const bool ok = FindInZip(z, [&](const std::string& name) { return IsArchivedRom(name, out); });
+	unzClose(z);
+	return ok;
+}
+
+bool ReadFromArchive(const std::string& path, std::string* inner, std::vector<uint8_t>* data, std::string* why,
+	const std::atomic<bool>* cancel, bool* certain)
+{
+	if (certain)
+		*certain = false;
+	if (ExtOf(path) == ".7z")
+	{
+		sevenzip::Archive a;
+		sevenzip::Status st = a.Open(path, cancel);
+		int i = -1;
+		if (st == sevenzip::Status::Ok)
+		{
+			i = First7zRom(a);
+			if (i < 0)
+			{
+				if (certain)
+					*certain = true;
+				return false; // no game inside: the caller says so
+			}
+			*inner = a.Entries()[size_t(i)].name;
+			st = a.Extract(size_t(i), data, kMaxArchivedRom);
+			if (st == sevenzip::Status::Ok && data->empty())
+				st = sevenzip::Status::Broken;
+		}
+		if (st != sevenzip::Status::Ok)
+		{
+			OrbisLog("[games] %s%s%s: %s", path.c_str(), i >= 0 ? " -> " : "", i >= 0 ? inner->c_str() : "",
+				sevenzip::StatusName(st));
+			if (why)
+				*why = SevenZipWhy(st);
+			if (certain)
+				*certain = CertainFailure(st);
+			data->clear();
+			return false;
+		}
+		return true;
+	}
+	unzFile z = unzOpen(path.c_str());
+	if (!z)
+	{
+		if (why)
+			*why = "The file could not be read."; // a share that dropped, or not a zip at all
+		return false;
+	}
+	bool ok = FindInZip(z, [&](const std::string& name) {
+		if (!IsArchivedRom(name))
 			return false;
 		*inner = name;
 		return true;
@@ -457,12 +766,18 @@ bool ReadFromZip(const std::string& path, std::string* inner, std::vector<uint8_
 	{
 		unz_file_info info;
 		ok = unzGetCurrentFileInfo(z, &info, nullptr, 0, nullptr, 0, nullptr, 0) == UNZ_OK &&
-			 info.uncompressed_size > 0 && info.uncompressed_size <= 32u * 1024 * 1024 /* the largest multicarts */ && unzOpenCurrentFile(z) == UNZ_OK;
+			 info.uncompressed_size > 0 && info.uncompressed_size <= kMaxArchivedRom && unzOpenCurrentFile(z) == UNZ_OK;
 		if (ok)
 		{
 			data->resize(info.uncompressed_size);
 			ok = unzReadCurrentFile(z, data->data(), unsigned(data->size())) == int(data->size());
 			unzCloseCurrentFile(z);
+		}
+		if (!ok)
+		{
+			data->clear();
+			if (why)
+				*why = "The file could not be read."; // the game is there, its data didn't come (or is damaged)
 		}
 	}
 	unzClose(z);
@@ -532,15 +847,31 @@ std::string Region(const std::string& nointro)
 }
 } // namespace gamedb
 
-bool RomCrc32(const std::string& path, uint32_t* whole, uint32_t* body, std::string* inner_ext)
+bool RomCrc32(const std::string& path, uint32_t* whole, uint32_t* body, std::string* inner_ext, const std::atomic<bool>* cancel,
+	bool* certain)
 {
+	if (certain)
+		*certain = false;
+	auto stopped = [cancel] { return cancel && cancel->load(); };
 	std::string ext = ExtOf(path);
 	std::vector<uint8_t> data;
 	System sys;
-	if (ext == ".zip")
+	if (IsArchiveExt(ext))
 	{
+		// the zip (or 7z) keeps its game's CRC: the archive is read only when the table doesn't know that CRC (a game
+		// whose header differs from No-Intro's, a disk with an fwNES header): its CRC without the header is taken then
 		std::string inner;
-		if (!ReadFromZip(path, &inner, &data))
+		uint32_t stored = 0;
+		System inner_sys = System::Nes;
+		if (StoredArchiveCrc(path, &inner, &stored, cancel) && SystemForExt(ExtOf(inner), &inner_sys) &&
+			!gamedb::ByCrc(inner_sys, stored, nullptr).empty())
+		{
+			if (inner_ext)
+				*inner_ext = ExtOf(inner);
+			*whole = *body = stored;
+			return true;
+		}
+		if (!ReadFromArchive(path, &inner, &data, nullptr, cancel, certain))
 			return false;
 		ext = ExtOf(inner);
 	}
@@ -560,7 +891,15 @@ bool RomCrc32(const std::string& path, uint32_t* whole, uint32_t* body, std::str
 			return false;
 		}
 		data.resize(size_t(size));
-		const size_t n = fread(data.data(), 1, data.size(), f);
+		// in pieces, so a cancel (NetNaming::Stop) does not wait for a whole ROM to come over the network
+		size_t n = 0;
+		while (n < data.size() && !stopped())
+		{
+			const size_t got = fread(data.data() + n, 1, std::min<size_t>(1 << 20, data.size() - n), f);
+			if (got == 0)
+				break;
+			n += got;
+		}
 		fclose(f);
 		if (n != data.size())
 			return false;
@@ -583,15 +922,174 @@ void PrepareFolders()
 	}
 }
 
+// ---- the naming pass for ROMs on shares ----
+
+struct NetNaming::Impl
+{
+	std::mutex lock;
+	std::deque<std::string> todo;
+	std::set<std::string> tried; // every path queued: a ROM is read once per run (one whose share went away is let go)
+	std::atomic<bool> stop{false};
+	std::atomic<int> resolved{0};
+	std::atomic<bool> busy{false};
+	ps5::BigThread thread;
+
+	void Run()
+	{
+		CrcCache& cache = SharedCrcCache();
+		int named = 0, since_save = 0;
+		for (;;)
+		{
+			std::string path;
+			{
+				std::unique_lock<std::mutex> g(lock);
+				if (stop.load() || todo.empty() || netfs_realtime())
+				{
+					busy = false;
+					break;
+				}
+				path = todo.front();
+				todo.pop_front();
+			}
+			struct stat st = {};
+			if (stat(path.c_str(), &st) != 0)
+			{
+				// the share went away: the next scan lists it again once it is back, and Add queues it then
+				std::lock_guard<std::mutex> g(lock);
+				tried.erase(path);
+				continue;
+			}
+			char key[64];
+			snprintf(key, sizeof(key), "%lld\t%lld\t", (long long)st.st_size, (long long)st.st_mtime);
+			if (IsArchiveExt(ExtOf(path)))
+			{
+				System sys;
+				// the system of the game inside, for the next scan
+				if (!CachedArchiveSystem(cache, path, st, &sys, true, nullptr, &stop) && !stop.load())
+				{
+					// an archive known to hold no game (nothing we list, encrypted names): no CRC to take, and the
+					// whole file is not read again to prove it
+					bool none = false;
+					{
+						std::lock_guard<std::mutex> g(cache.lock);
+						auto it = cache.lines.find("sys:" + path);
+						none = it != cache.lines.end() && it->second == std::string(key) + "none";
+					}
+					if (none)
+					{
+						cache.Put(path, std::string(key) + "fail");
+						named++;
+						resolved++;
+						continue;
+					}
+				}
+			}
+			uint32_t whole = 0, body = 0;
+			bool certain = false;
+			const bool ok = RomCrc32(path, &whole, &body, nullptr, &stop, &certain);
+			if (stop.load())
+			{
+				// cancelled half way: nothing recorded, and it is the first to be read when the pass starts again
+				std::lock_guard<std::mutex> g(lock);
+				todo.push_front(path);
+				break;
+			}
+			char val[96];
+			if (ok)
+				snprintf(val, sizeof(val), "%s%08X\t%08X", key, whole, body);
+			else
+				snprintf(val, sizeof(val), "%sfail", key);
+			// a read error is not remembered as "fail" (FailureIsTheFiles): the next visit of the shelf tries it again
+			// (not this one: it stays in `tried`, or every scan the pass's results bring would read it once more)
+			if (ok || certain || FailureIsTheFiles(path, st, &stop))
+				cache.Put(path, val);
+			else if (stop.load())
+			{
+				std::lock_guard<std::mutex> g(lock);
+				todo.push_front(path); // cancelled while it was being checked: the same as above
+				break;
+			}
+			named++;
+			resolved++;
+			if (++since_save >= 20)
+			{
+				cache.Save(false);
+				since_save = 0;
+			}
+		}
+		cache.Save(false);
+		busy = false;
+		OrbisLog("[games] network CRC pass: %d ROM(s) read%s", named, stop.load() ? " (stopped)" : "");
+	}
+};
+
+NetNaming::NetNaming() : m_i(new Impl) {}
+
+NetNaming::~NetNaming()
+{
+	Stop();
+}
+
+void NetNaming::Add(const std::vector<GameInfo>& games)
+{
+	size_t added = 0, queued = 0;
+	{
+		std::lock_guard<std::mutex> g(m_i->lock);
+		for (const GameInfo& game : games)
+			if (game.crc_pending && m_i->tried.insert(game.path).second)
+			{
+				m_i->todo.push_back(game.path);
+				added++;
+			}
+		queued = m_i->todo.size();
+	}
+	if (added)
+		OrbisLog("[games] naming %zu network ROM(s) by CRC in the background", added);
+	// nothing new may still leave work: what a Stop() cut short, or what was queued when a game started (netfs_realtime)
+	if (!queued)
+		return;
+	if (m_i->busy.load())
+		return; // the running pass takes the new ones too
+	m_i->thread.join();
+	m_i->stop = false;
+	m_i->busy = true;
+	m_i->thread = ps5::BigThread([this] { m_i->Run(); }, 256 * 1024);
+}
+
+void NetNaming::Stop()
+{
+	m_i->stop = true;
+	m_i->thread.join();
+	m_i->busy = false;
+}
+
+int NetNaming::Resolved() const
+{
+	return m_i->resolved.load();
+}
+
+bool NetNaming::Busy() const
+{
+	return m_i->busy.load();
+}
+
+std::vector<std::string> RomRoots()
+{
+	std::vector<std::string> roots = OrbisRomRoots();
+	for (const std::string& r : netfs_mount_points())
+		roots.push_back(r);
+	return roots;
+}
+
 std::vector<GameInfo> ScanGames()
 {
 	PrepareFolders();
 	std::vector<GameInfo> games;
-	for (const std::string& root : OrbisRomRoots())
-		Walk(root, 0, root.rfind("/mnt/", 0) == 0, games);
+	CrcCache& cache = SharedCrcCache();
+	cache.Begin();
+	for (const std::string& root : RomRoots())
+		Walk(root, 0, root.rfind("/mnt/", 0) == 0, netfs_is_network_path(root.c_str()), games, cache);
 
-	CrcCache cache;
-	cache.Load();
 	for (GameInfo& g : games)
 	{
 		System found = g.system;
@@ -599,7 +1097,12 @@ std::vector<GameInfo> ScanGames()
 		if (g.nointro.empty())
 		{
 			uint32_t whole = 0, body = 0;
-			if (CachedCrc(cache, g.path, &whole, &body))
+			bool known = false;
+			const bool have = CachedCrc(cache, g.path, &whole, &body, !g.on_network, &known);
+			// a game on a share is named from its file name for now: NetNaming reads its CRC
+			if (g.on_network && !known)
+				g.crc_pending = true;
+			if (have)
 			{
 				g.nointro = gamedb::ByCrc(g.system, whole, &found);
 				if (g.nointro.empty() && body != whole)
@@ -614,7 +1117,7 @@ std::vector<GameInfo> ScanGames()
 		g.title = g.nointro.empty() ? g.file_base : gamedb::Title(g.nointro);
 		g.region = gamedb::Region(g.nointro);
 	}
-	cache.Save();
+	cache.Save(true);
 
 	std::sort(games.begin(), games.end(), [](const GameInfo& a, const GameInfo& b) {
 		const int c = strcasecmp(a.title.c_str(), b.title.c_str());
