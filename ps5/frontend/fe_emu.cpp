@@ -37,6 +37,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cctype>
 #include <cmath>
 #include <cstdarg>
@@ -317,6 +318,10 @@ struct State
 
 	// pads
 	ps5input::PadState pads[ps5input::kMaxPads];
+	// Turbo A / Turbo B of players 3 and 4 (FCEUmm's own turbo is for players 1 and 2 only): each port's two
+	// counters, as the core counts its own, and the buttons they press this frame (TurboPoll)
+	int turbo_count[ps5input::kMaxPads][2] = {};
+	uint16_t turbo_add[ps5input::kMaxPads] = {};
 	uint32_t prev_p1 = 0;
 	bool wait_release = true;
 
@@ -534,11 +539,14 @@ size_t AudioBatch(const int16_t* data, size_t frames)
 	return frames;
 }
 
+void TurboPoll();
+
 void InputPoll()
 {
 	ps5input::Poll();
 	for (int p = 0; p < ps5input::kMaxPads; p++)
 		g.pads[p] = ps5input::Snapshot(p);
+	TurboPoll();
 }
 
 // The RetroPad FCEUmm reads, from the player's button layout (Settings, CONTROLS; by position by default:
@@ -574,6 +582,34 @@ uint16_t RetroPadBits(const ps5input::PadState& p, bool dpad_off)
 	return bits;
 }
 
+// 1.2's review: FCEUmm's turbo (fceumm_turbo_enable) only covers players 1 and 2, so Turbo A / Turbo B of players 3
+// and 4 are done here, the core's way: while held, the button is pressed on the first frame and then once every
+// (delay + 1) frames (the Turbo speed setting, fceumm_turbo_delay). Once a frame, from the core's input poll.
+void TurboPoll()
+{
+	const int delay = std::max(1, atoi(emu::kTurboSpeeds[fe::Config().turbo % emu::kTurboSpeedCount].value));
+	static const unsigned kTurbo[2][2] = {
+		{RETRO_DEVICE_ID_JOYPAD_X, RETRO_DEVICE_ID_JOYPAD_A}, // Turbo A
+		{RETRO_DEVICE_ID_JOYPAD_Y, RETRO_DEVICE_ID_JOYPAD_B}, // Turbo B
+	};
+	for (int p = 2; p < ps5input::kMaxPads; p++)
+	{
+		const uint16_t bits = RetroPadBits(g.pads[p], false);
+		g.turbo_add[p] = 0;
+		for (int i = 0; i < 2; i++)
+		{
+			if (bits & (1u << kTurbo[i][0]))
+			{
+				if (g.turbo_count[p][i] == 0)
+					g.turbo_add[p] |= uint16_t(1u << kTurbo[i][1]);
+				g.turbo_count[p][i] = (g.turbo_count[p][i] + 1) % (delay + 1);
+			}
+			else
+				g.turbo_count[p][i] = 0;
+		}
+	}
+}
+
 int16_t InputState(unsigned port, unsigned device, unsigned index, unsigned id)
 {
 	if (port >= unsigned(ps5input::kMaxPads) || (device & RETRO_DEVICE_MASK) != RETRO_DEVICE_JOYPAD || index != 0)
@@ -584,7 +620,7 @@ int16_t InputState(unsigned port, unsigned device, unsigned index, unsigned id)
 	if (port == 0 && g.wait_release)
 		return 0;
 	const bool l2 = port == 0 && (g.pads[0].raw_buttons & SCE_PAD_BUTTON_L2) != 0;
-	const uint16_t bits = RetroPadBits(g.pads[port], l2);
+	const uint16_t bits = RetroPadBits(g.pads[port], l2) | (port >= 2 ? g.turbo_add[port] : 0);
 	if (id == RETRO_DEVICE_ID_JOYPAD_MASK)
 		return int16_t(bits);
 	return id < 16 ? int16_t((bits >> id) & 1) : 0;
@@ -901,7 +937,8 @@ void ApplyControllers()
 		a == fe::FourPlayer::None ? "none, 2 players" : (a == fe::FourPlayer::FourScore ? "NES Four Score" : "Famicom's"),
 		setting == 0 ? "Auto" : "the setting", setting == 0 && !g.four_why.empty() ? ": " : "",
 		setting == 0 ? g.four_why.c_str() : "");
-	if (first && a != fe::FourPlayer::None)
+	// (not for a VS. System game: its controls are read the arcade's way, with no adapter)
+	if (first && a != fe::FourPlayer::None && fe_nes_game_type() != FE_NES_VS)
 		Osd(Fmt(fe::T("%s: players 3 and 4 can join"), fe::T(kFourPlayers[a == fe::FourPlayer::FourScore ? 2 : 3].name)));
 }
 

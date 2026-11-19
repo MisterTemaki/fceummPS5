@@ -122,6 +122,13 @@ int main()
 	if (!jailbreak::ServeHelper(OnReady))
 	{
 #ifndef FCEUMM_HELPER_ONLY
+		// 1.2's review: an earlier version's helper (1.1 or older) keeps running until the console is restarted, and it
+		// has no updater: Settings, Updates works after the restart
+		if (jailbreak::RunningHelperIsOld())
+		{
+			OrbisLog("[installer] the helper running is an earlier version's (no updater)");
+			g_ready_message += " The helper of an earlier version is still running: restart the PS5 to use Settings, Updates.";
+		}
 		ProsperoNotify("%s", g_ready_message.c_str());
 #endif
 		OrbisLog("[helper] another helper is running: leaving");

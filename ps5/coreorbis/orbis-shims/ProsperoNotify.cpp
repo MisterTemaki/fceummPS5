@@ -10,6 +10,7 @@
 
 #include "OrbisPaths.h"
 #include "ProsperoSce.h"
+#include "ProsperoThread.h"
 
 #include <condition_variable>
 #include <cstdarg>
@@ -19,6 +20,7 @@
 #include <deque>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <thread>
 
 namespace
@@ -103,18 +105,37 @@ void ProsperoNotify(const char* fmt, ...)
 	va_end(ap);
 
 	Shared& s = S();
-	std::lock_guard<std::mutex> lock(s.lock);
-	if (s.quit)
-		return;
-	if (s.queue.size() >= 8)
-		s.queue.pop_front(); // a burst of toasts: keep the newest
-	s.queue.emplace_back(text);
-	if (!s.started)
 	{
-		s.started = true;
-		s.worker = std::thread(Worker);
+		std::lock_guard<std::mutex> lock(s.lock);
+		if (s.quit)
+			return;
+		if (s.queue.size() >= 8)
+			s.queue.pop_front(); // a burst of toasts: keep the newest
+		s.queue.emplace_back(text);
+		if (!s.started)
+		{
+			// 1.2: a thread the system refuses is std::system_error from std::thread (uncaught, it ended the app): the
+			// toast is sent from here then, and the next one tries the thread again
+			try
+			{
+				if (ps5::HostRefusesThreads())
+					throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
+				s.worker = std::thread(Worker);
+				s.started = true;
+			}
+			catch (const std::system_error&)
+			{
+				s.queue.pop_back();
+			}
+		}
+		if (s.started)
+		{
+			s.wake.notify_one();
+			return;
+		}
 	}
-	s.wake.notify_one();
+	OrbisLog("[notify] no thread for the notifications: sent from the caller");
+	Send(text);
 }
 
 void ProsperoNotifyFlush()

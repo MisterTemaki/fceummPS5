@@ -38,7 +38,7 @@ struct Config
 	std::string app_dir;     // the folder the console runs the app from (ProsperoAppPlace.h), /data/homebrew/<title_id>
 	std::string appmeta_dir; // /user/appmeta/<title_id>
 	std::string api_url;     // "" -> https://api.github.com/repos/<repo>/releases/latest
-	// 1.2: set when app_dir can't take an update (an image, a read-only folder, a folder that can't be identified for
+	// Set when app_dir can't take an update (an image, a read-only folder, a folder that can't be identified for
 	// sure: ProsperoAppPlace.h): why, and then nothing is downloaded or written (StartInstall fails with it, InstallZip
 	// returns it). From Media Player Classic PS5 1.5 / Stella PS5 (their ShadowMount+ fix).
 	std::string cant_install;
@@ -73,7 +73,7 @@ void Init(const Config& config, Fetch fetch);
 // Where the update goes (the helper looks it up before each check and install, ProsperoAppPlace.h); cant_install: why
 // it can't go there ("" when it can). An install under way keeps the folder it started with.
 void SetPlace(const std::string& app_dir, const std::string& cant_install);
-// 1.2: where to look the place up -- called at the start of each check and install, on the updater's own thread
+// Where to look the place up -- called at the start of each check and install, on the updater's own thread
 // (it touches the app's folder, which may be on a slow drive: the helper's request loop answers the app within 5 s)
 void SetPlaceLookup(std::function<void()> lookup);
 // The version installed (the app says which when it asks: a helper of an older build may be the one running).

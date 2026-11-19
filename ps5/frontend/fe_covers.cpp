@@ -462,6 +462,8 @@ void CoverService::Start(const std::vector<GameInfo>& games, bool allow_download
 	OrbisLog("[covers] %zu game(s), %d cover(s) to download%s", games.size(), need,
 		allow_download ? "" : m_background ? " (the helper downloads them in the background)" : " (downloads off)");
 	m_thread = ps5::BigThread([this] { Run(); }, 8 * 1024 * 1024);
+	if (!m_thread.joinable())
+		OrbisLog("[covers] no thread for the covers (the system refused it): none are loaded this time"); // 1.2
 }
 
 void CoverService::Stop()

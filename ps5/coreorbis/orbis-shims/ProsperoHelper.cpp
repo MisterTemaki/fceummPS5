@@ -287,6 +287,48 @@ std::string UpdateCommand(const char* what)
 }
 } // namespace
 
+bool RunningHelperIsOld()
+{
+	const char* env = getenv("FCEUMM_HELPER_PORT");
+	const int port = (env && *env) ? atoi(env) : kHelperPort;
+	const int fd = socket(AF_INET, SOCK_STREAM, 0);
+	if (fd < 0)
+		return false;
+	timeval tv = {3, 0};
+	setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+	sockaddr_in sa;
+	memset(&sa, 0, sizeof(sa));
+#ifdef __FreeBSD__
+	sa.sin_len = sizeof(sa);
+#endif
+	sa.sin_family = AF_INET;
+	sa.sin_port = htons(uint16_t(port));
+	sa.sin_addr.s_addr = htonl(0x7F000001);
+	if (connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) != 0)
+	{
+		close(fd);
+		return false;
+	}
+	// a 1.2+ helper answers every update request (this process isn't the app: "not our app"); 1.1's closes without one
+	Request req;
+	memset(&req, 0, sizeof(req));
+	req.magic = kMagic;
+	req.cmd = kCmdUpdate;
+	req.pid = int32_t(getpid());
+	req.ret = kRetUntouched;
+	snprintf(req.msg1, sizeof(req.msg1), "%s", "status");
+	snprintf(req.msg2, sizeof(req.msg2), "%s", FCEUMM_PS5_VERSION);
+	bool old = false;
+	if (send(fd, &req, sizeof(req), 0) == ssize_t(sizeof(req)))
+	{
+		char c;
+		old = recv(fd, &c, 1, 0) == 0; // closed with no answer (a timeout is not that)
+	}
+	close(fd);
+	return old;
+}
+
 bool ServeHelper(void (*on_ready)())
 {
 	signal(SIGPIPE, SIG_IGN);

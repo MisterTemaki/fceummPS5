@@ -437,7 +437,7 @@ void* CheckMain(void*)
 		why = status < 0 ? "Couldn't reach GitHub (is the console online?)." : "GitHub answered " + std::to_string(status) + ".";
 	else if (!ParseRelease(std::string(data.begin(), data.end()), g_config.title_id, r, &why))
 		why = "The newest release has no " + g_config.title_id + " zip (" + why + ").";
-	// 1.2: the "newer version" notification is sent after the lock is let go: it joins the notification thread, and
+	// the "newer version" notification is sent after the lock is let go: it joins the notification thread, and
 	// the helper's single request loop asks GetStatus (the same lock) for the app, whose request gives up after 5 s
 	std::function<void(const std::string&)> tell;
 	{
@@ -469,9 +469,9 @@ void* CheckMain(void*)
 void* InstallMain(void*)
 {
 	if (g_place_lookup)
-		g_place_lookup(); // the folder as it is now (1.2: here, not in the helper's request)
+		g_place_lookup(); // the folder as it is now (here, on this thread, not in the helper's request)
 	Release r;
-	Config c; // 1.2: a copy, taken under the lock (the helper's request loop sets the version meanwhile)
+	Config c; // a copy, taken under the lock (the helper's request loop sets the version meanwhile)
 	{
 		std::lock_guard<std::mutex> l(g_mu);
 		if (!g_config.cant_install.empty())
@@ -764,8 +764,21 @@ void SetPlace(const std::string& app_dir, const std::string& cant_install)
 void SetCurrentVersion(const std::string& version)
 {
 	std::lock_guard<std::mutex> l(g_mu);
-	if (!version.empty() && version.size() < 32)
-		g_config.version = version;
+	if (version.empty() || version.size() >= 32)
+		return;
+	g_config.version = version;
+	// (NES FCEUmm PS5 1.2's review) an install done stays shown until the app is opened again -- and the app that asks
+	// now is the version installed (or a newer one): it was opened again. The helper, still running since before the
+	// install (it runs until the console is turned off), takes up checking again: up to date, the next check allowed.
+	// Before, "done" stayed until the helper ended, so the new version's Settings said "installed" and its daily check
+	// did nothing until the console was restarted.
+	if (!g_busy && g_status.phase == Phase::Done && !g_status.latest.empty() && CompareVersions(version, g_status.latest) >= 0)
+	{
+		OrbisLog("[update] %s asks: the install of %s is done, back to up to date", version.c_str(), g_status.latest.c_str());
+		g_status.phase = Phase::UpToDate;
+		g_status.done = g_status.total = 0;
+		g_status.error.clear();
+	}
 }
 
 const Config& CurrentConfig()
@@ -784,7 +797,7 @@ bool StartCheck(bool notify)
 	std::lock_guard<std::mutex> l(g_mu);
 	if (g_busy || !g_fetch)
 		return false;
-	// a download or an install done stays shown until the app is opened again
+	// an install done stays shown until the app is opened again (SetCurrentVersion: the new version asking)
 	if (g_status.phase == Phase::Done)
 		return false;
 	g_busy = true;

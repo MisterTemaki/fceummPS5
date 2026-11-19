@@ -258,6 +258,17 @@ void ExceptionSelfTest()
 	OrbisLogSync();
 }
 
+#ifndef __PROSPERO__
+// The host tests (FCEUMM_HOST_CRASH_TEST=1): a fault with rbp holding no frame, as -O3 code leaves it, so the crash
+// report is checked where a frame-pointer walk would fault (ProsperoCrash.cpp, FBNeo PS5 2.2's)
+[[noreturn]] __attribute__((noinline)) void CrashForTest()
+{
+	FCEUMM_STAGE(Boot, "crash test");
+	__asm__ volatile("movabsq $0x00007f00deadbee8, %rbp\n\tmovq (%rbp), %rax");
+	__builtin_unreachable();
+}
+#endif
+
 int Run(int argc, char** argv)
 {
 	setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -277,6 +288,10 @@ int Run(int argc, char** argv)
 	OrbisLog("[boot] jailbreak: %s", freed ? how.c_str() : "nobody answered");
 	const bool have_data = OrbisPathsInit();
 	OrbisLogOpen(); // also writes the lines above
+#ifndef __PROSPERO__
+	if (const char* e = getenv("FCEUMM_HOST_CRASH_TEST"); e && *e == '1')
+		CrashForTest();
+#endif
 	ExceptionSelfTest();
 	fe::SavePrefetched(prefetch);
 	fe::RememberPrefetch(prefetch);
@@ -361,6 +376,12 @@ int Run(int argc, char** argv)
 	}
 
 	OrbisLog("[boot] leaving");
+	if (!fe::QuitForUpdate().empty())
+	{
+		// Settings, Updates: the new version installed; the system notification stays after the app has ended
+		ProsperoNotify(fe::T("NES FCEUmm PS5 %s is installed: open it again from the home screen."), fe::QuitForUpdate().c_str());
+		ProsperoNotifyFlush();
+	}
 	fe::ShelfShutdown();
 	fe::Config().Save();
 	emu::DeinitCore();

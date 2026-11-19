@@ -216,9 +216,11 @@ bool FetchWantedCovers(std::string& text, bool* background)
 	return r == 1;
 }
 
-bool UpdateRequest(const char* what, std::string& reply)
+bool UpdateRequest(const char* what, std::string& reply, bool* old_helper)
 {
 	reply.clear();
+	if (old_helper)
+		*old_helper = false;
 	const int fd = ConnectLocal(PortFromEnv("FCEUMM_HELPER_PORT", kHelperPort));
 	if (fd < 0)
 		return false;
@@ -236,14 +238,22 @@ bool UpdateRequest(const char* what, std::string& reply)
 		return false;
 	}
 	size_t got = 0;
+	bool closed = false;
 	while (got < sizeof(req))
 	{
 		const ssize_t n = recv(fd, reinterpret_cast<char*>(&req) + got, sizeof(req) - got, 0);
 		if (n <= 0)
+		{
+			closed = n == 0;
 			break;
+		}
 		got += size_t(n);
 	}
 	close(fd);
+	// a helper of NES FCEUmm PS5 1.1 (or older) takes the request but doesn't know it: it closes the connection
+	// without a word (1.2's review; a timeout is not that)
+	if (got == 0 && closed && old_helper)
+		*old_helper = true;
 	if (got != sizeof(req) || req.magic != kMagic || req.ret != 0)
 		return false;
 	req.msg1[sizeof(req.msg1) - 1] = 0;

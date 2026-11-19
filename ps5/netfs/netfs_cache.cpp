@@ -632,6 +632,10 @@ void Cache::EnsureWorker()
 		return;
 	m_worker_started = true;
 	m_worker = ps5::BigThread([this] { WorkerLoop(); }, 256 * 1024);
+	// 1.2: no thread (the system refused it): no read-ahead; a read fetches its own blocks (ReadAt), and the next
+	// EnsureWorker tries again
+	if (!m_worker.joinable())
+		m_worker_started = false;
 }
 
 void Cache::Enqueue(const std::shared_ptr<FileData>& f, size_t block, bool urgent)

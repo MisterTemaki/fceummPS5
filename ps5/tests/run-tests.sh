@@ -1437,6 +1437,35 @@ four_test t35h "Auto, a game in FCEUmm's Four Score list (Bomberman II (USA)'s C
 four_test t35i "Auto, a game in FCEUmm's Famicom list (Bomberman II (Japan)'s CRC)" 4p 0 "$BLUE4" "$PURPLE4" 0C401790 "Famicom's (Auto: FCEUmm's list, CRC 0C401790)"
 four_test t35j "Off, a game in FCEUmm's Famicom list: the adapter FCEUmm plugged in is taken out" 4p 1 "$RED4" "$RED4" 0C401790 "none, 2 players (the setting)"
 four_test t35k "the Four Score set by hand on a game in FCEUmm's Famicom list" 4p 2 "$GREEN4" "$CYAN4" 0C401790 "NES Four Score (the setting)"
+# Turbo B (Square) of player 3, through a Four Score: on and off by itself (FCEUmm's own turbo is for players 1 and 2)
+T=$(newroot t35turbo)
+$ROM "$T/root/roms/four.nes" 4p >/dev/null
+echo "four_player=2" >>"$T/root/fceumm-ps5.ini"
+rc=$(export FCEUMM_HOST_USERS=4 FCEUMM_HOST_PAD3="0:0;150:$SQUARE;200:0"
+	run "$T" "0:0;$(QUITAT 220)" "$(seq -s, 170 185)" "$T/root/roms/four.nes")
+greens=0; reds=0
+for f in $(seq 170 185); do
+	$CHECK $T/dump/flip00$f.ppm 960 540 $GREEN4 >/dev/null 2>&1 && greens=$((greens + 1))
+	$CHECK $T/dump/flip00$f.ppm 960 540 $RED4 >/dev/null 2>&1 && reds=$((reds + 1))
+done
+expect "[ $rc = 0 ] && [ $greens -ge 3 ] && [ $reds -ge 3 ]" "player 3's Square held: turbo B ($greens green, $reds red frames of 16)"
+nosan "$T"
+# no threads at all (the system refuses every one): the shelf draws, a game starts, there is no sound, the app goes on
+T=$(newroot t35nothreads)
+$ROM "$T/root/roms/test.nes" >/dev/null
+rc=$(FCEUMM_HOST_NO_THREADS=1 MAXFLIPS=600 run "$T" "0:0;60:$CROSS;62:0;$(QUITAT 200)" "")
+B=$T/root/logs/boot.log
+expect "[ $rc = 0 ] && grep -q 'running \"test\"' $B" "no threads at all: the shelf works and the game starts (exit $rc)"
+expect "grep -q 'no thread for the sound' $B && grep -q '\[covers\] no thread for the covers' $B" "... no sound (said), no covers (said): the app does not end"
+nosan "$T"
+# the crash report with rbp holding no frame (-O3 code): the stack scan first, the report whole; SIGSYS caught too
+T=$(newroot t35crash)
+FCEUMM_HOST_CRASH_HANDLER=1 FCEUMM_HOST_CRASH_TEST=1 FCEUMM_PS5_ROOT=$T/root FCEUMM_PS5_HOMEBREW=$T/homebrew \
+	ASAN_OPTIONS=detect_leaks=0:handle_segv=0:allow_user_segv_handler=1 timeout 30 "$BIN" >"$T/out.txt" 2>&1
+rc=$?
+B=$T/root/logs/boot.log
+expect "[ $rc = 1 ] && grep -q '== CRASH ==' $B && grep -q 'signal 11 (SIGSEGV)' $B && grep -q 'stage\[boot\] = crash test' $B && grep -q '== END CRASH ==' $B" "a fault with a garbage rbp: the crash report is written whole (exit $rc)"
+expect "grep -q 'SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP, SIGSYS' coreorbis/orbis-shims/ProsperoCrash.cpp" "SIGSYS (a call the console refuses a title) is caught and named too"
 # changed over the game: the pause menu (Down seven times to Settings), the 4-player adapter row (20 rows below Shader)
 # says "Auto (2 players)"; Right twice: Off, NES Four Score; Circle twice: back in the game, where player 3's Cross is
 # green at once. The choice is kept in fceumm-ps5.ini.
@@ -1506,7 +1535,7 @@ expect "$UPD install $VER --until done,failed | grep -q '^done|9.9|'" "downloade
 expect "grep -q 'eboot v9.9' $T/homebrew/PPSA99013/eboot.bin && grep -q '\"contentVersion\": \"99.000.000\"' $T/homebrew/PPSA99013/sce_sys/param.json" "the new eboot.bin and param.json in place"
 expect "[ -f $T/homebrew/PPSA99013/sce_sys/extra.bin ] && [ ! -e $T/homebrew/PPSA99013/sce_sys/old.bin ] && grep -q 'sce_sys/extra.bin' $T/homebrew/PPSA99013/manifest.sha256" "a new file added, one the old manifest had removed, the manifest kept"
 expect "grep -q 'new art' $T/appmeta/PPSA99013/icon0.png && [ -z \"\$(find $T/homebrew -name '*.new' -o -name '*.bak' -o -name '*.old')\" ]" "the home screen's copy of the art refreshed; no .new files left, no backup of the old version kept"
-expect "$UPD status 9.9 | grep -q '^done|'" "the result stays until the app is opened again"
+expect "$UPD status $VER | grep -q '^done|'" "the result stays until the app is opened again"
 stop36
 (cd "$SRV" && exec python3 -m http.server $SPORT --bind 127.0.0.1 >/dev/null 2>&1) &
 # the old payload sent again (an autoload): the newer version is left alone
@@ -1535,7 +1564,38 @@ expect "grep -q 'daily check asked of the helper' $T2/root/logs/boot.log && [ -f
 expect "grep -q 'update install' $T2/root/logs/installer.log && grep -q 'eboot v9.9' $T2/homebrew/PPSA99013/eboot.bin" "Cross on \"Install 9.9\": the helper installs it"
 expect "grep -q 'is available: Settings, SYSTEM, Updates' $T2/inst.txt $T2/root/logs/installer.log" "the daily check found 9.9: a notification says so"
 nosan "$T2"
+# Cross on "Installed: close and open again" (the helper still says done for 1.2): the app ends the normal way, a
+# notification says to open it again; over a game, the game is closed first (its battery save written)
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_PS5_APPMETA=$T2/appmeta MAXFLIPS=600 run "$T2" "0:0;30:$TRIANGLE;32:0;40:$UP;42:0;46:$UP;48:0;56:$CROSS;58:0" "52")
+expect "[ $rc = 0 ] && grep -q '9.9 installed: the app ends, to be opened again' $T2/root/logs/boot.log && grep -q 'leaving' $T2/root/logs/boot.log" "Cross on \"Installed: close and open again\" (the shelf's Settings): the app ends the normal way (exit $rc)"
+expect "grep -q '9.9 is installed: open it again from the home screen' $T2/root/logs/boot.log" "... a notification says to open it again"
+$ROM "$T2/root/roms/sram.nes" sram >/dev/null
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_PS5_APPMETA=$T2/appmeta MAXFLIPS=900 run "$T2" "0:0;$(SEQ 100 $L3R3 $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $CROSS $UP $UP $CROSS)" "" "$T2/root/roms/sram.nes")
+expect "[ $rc = 0 ] && grep -q 'game closed' $T2/root/logs/boot.log && grep -q '9.9 installed: the app ends' $T2/root/logs/boot.log && [ -f $T2/root/saves/NES/sram.srm ]" "over a game: the game is closed (its battery save written), then the app ends (exit $rc)"
+nosan "$T2"
+# the new version opened: the helper (still the one that installed it) takes up checking again
+expect "$UPD status $VER | grep -q '^done|9.9|'" "the app that asked for the install (still $VER) sees it done"
+expect "$UPD status 9.9 | grep -q '^uptodate|9.9|'" "the version installed asking: up to date (not done until the console restarts)"
+expect "$UPD check 9.9 --until uptodate,available,failed | grep -q '^uptodate|9.9|'" "... and its check runs again"
 stop36
+# an earlier version's helper (1.1: it takes an update request and closes without an answer) still running: the app's
+# Settings, Updates says to restart the PS5; the 1.2 payload sent then installs and says so too
+T3=$(newroot t36c)
+python3 -c "
+import socket
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('127.0.0.1', $FCEUMM_HELPER_PORT)); s.listen(8)
+while True:
+    c, _ = s.accept(); c.recv(4096); c.close()
+" &
+oldp=$!
+sleep 0.5
+$ROM "$T3/root/roms/test.nes" >/dev/null
+rc=$(run "$T3" "0:0;30:$TRIANGLE;32:0;40:$UP;42:0;46:$UP;48:0;60:$CIRCLE;62:0;$(SHELFQUIT_AT 80)" "54")
+expect "[ $rc = 0 ] && grep -q 'the helper running is an earlier version.s (no updater): restart the PS5' $T3/root/logs/boot.log" "an earlier version's helper running: Settings, Updates says to restart the PS5"
+FCEUMM_PS5_ROOT=$T3/root FCEUMM_PS5_HOMEBREW=$T3/homebrew FCEUMM_PS5_APPMETA=$T3/appmeta ASAN_OPTIONS=detect_leaks=0 timeout 60 "$INSTALLER" >"$T3/inst.txt" 2>&1
+expect "grep -q 'NES FCEUmm PS5 $VER installed.* The helper of an earlier version is still running: restart the PS5 to use Settings, Updates' $T3/root/logs/installer.log" "the payload sent meanwhile installs, and says the earlier helper runs until the PS5 restarts"
+kill $oldp 2>/dev/null; wait $oldp 2>/dev/null
+nosan "$T3"
 # the release zip make dist builds: the app folder stored (no compression), its manifest; every file listed
 Z=$WORK/t36-zip; rm -rf "$Z"; mkdir -p "$Z/PPSA99013/sce_sys"; echo e >"$Z/PPSA99013/eboot.bin"; echo p >"$Z/PPSA99013/sce_sys/param.json"
 python3 tools/make_release_zip.py "$Z/PPSA99013" PPSA99013 "$Z/r.zip" >/dev/null

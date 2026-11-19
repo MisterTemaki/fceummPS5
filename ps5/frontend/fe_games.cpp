@@ -1055,6 +1055,12 @@ void NetNaming::Add(const std::vector<GameInfo>& games)
 	m_i->stop = false;
 	m_i->busy = true;
 	m_i->thread = ps5::BigThread([this] { m_i->Run(); }, 256 * 1024);
+	if (!m_i->thread.joinable())
+	{
+		// 1.2: no thread (the system refused it): the games on shares keep their file names for now; the next Add tries again
+		m_i->busy = false;
+		OrbisLog("[games] no thread for the background naming: the games on shares keep their file names for now");
+	}
 }
 
 void NetNaming::Stop()

@@ -528,15 +528,26 @@ void netfs_start()
 {
 	std::shared_ptr<const ShareList> list = Shares();
 	Registry& r = R();
-	std::lock_guard<std::mutex> lk(r.mu);
-	r.wd_stop = false;
-	for (const std::shared_ptr<Share>& s : *list)
+	std::vector<std::shared_ptr<Share>> here; // 1.2: no thread for these (the system refused it)
 	{
-		std::shared_ptr<Share> keep = s;
-		r.mounters.emplace_back([keep] { keep->Mount(); }, 512 * 1024);
+		std::lock_guard<std::mutex> lk(r.mu);
+		r.wd_stop = false;
+		for (const std::shared_ptr<Share>& s : *list)
+		{
+			std::shared_ptr<Share> keep = s;
+			r.mounters.emplace_back([keep] { keep->Mount(); }, 512 * 1024);
+			if (!r.mounters.back().joinable())
+			{
+				r.mounters.pop_back();
+				here.push_back(keep);
+			}
+		}
+		if (!list->empty() && !r.watchdog.joinable())
+			r.watchdog = ps5::BigThread(WatchdogLoop, 128 * 1024);
 	}
-	if (!list->empty() && !r.watchdog.joinable())
-		r.watchdog = ps5::BigThread(WatchdogLoop, 128 * 1024);
+	// mounted on this thread, within the connect limit (Mount reports through the registry: not under its lock)
+	for (const std::shared_ptr<Share>& s : here)
+		s->Mount();
 }
 
 void netfs_mount_all_blocking()

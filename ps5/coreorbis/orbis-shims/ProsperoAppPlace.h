@@ -22,7 +22,7 @@ struct AppPlace
 	bool writable = true;
 	bool image = false;  // the source is inside an image mounted by ShadowMount+ (under /mnt/shadowmnt)
 	bool unsure = false; // ShadowMount+ names a folder that isn't there now: nothing is written anywhere
-	bool fallback = false; // 1.2: a mount that can't be read as ShadowMount+'s: default_dir, as 1.1 wrote
+	bool fallback = false; // a mount that can't be read as ShadowMount+'s: default_dir, as 1.1 wrote
 	bool via_link = false; // no mount yet: the folder from ShadowMount+'s link (/user/app/<TITLE_ID>/mount.lnk)
 	bool image_pending = false; // that folder is in an image ShadowMount+ hasn't mounted yet (not written)
 	std::string reason; // !writable: why, a sentence for the user (English; ProsperoPlaceText.h, translated by the app)
@@ -37,7 +37,7 @@ struct AppPlace
 // - every folder written has a sce_sys/param.json naming the app;
 // - a read-only mount of a folder whose own file system takes files: the folder itself is written (1.2);
 // - statfs(2) failing: getfsstat(2); neither answering, a mount that isn't nullfs and has no nullfs layer, or a source
-//   that can't be identified: default_dir, as 1.1 (1.2: it wrote nothing before);
+//   that can't be identified: default_dir, as 1.1;
 // - no mount (a payload autoloaded before ShadowMount+ has mounted the app): ShadowMount+'s link
 //   /user/app/<TITLE_ID>/mount.lnk names the folder (not there: nothing written, no second copy; in an image -- under
 //   /mnt/shadowmnt, or mount_img.lnk beside it -- never written; a link that isn't an absolute path is ignored).

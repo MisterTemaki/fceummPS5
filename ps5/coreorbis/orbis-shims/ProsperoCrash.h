@@ -1,7 +1,7 @@
 // NES FCEUmm PS5: a crash printer and stage markers, so a fault names where it happened (ProsperoCrash.cpp).
 //
 // Snes9x PS5 1.6 (the port this layer comes from) reached its shelf on the console and then died with
-// "crashed before KStuff was paused" and nothing in boot.log to say where. This installs signal handlers (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT/SIGTRAP) on a separate signal stack
+// "crashed before KStuff was paused" and nothing in boot.log to say where. This installs signal handlers (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT/SIGTRAP, and SIGSYS since 1.2) on a separate signal stack
 // (so a stack overflow can still be reported), modelled on PS5SX2's orbis-shims/ProsperoCrash.cpp. On a
 // fault it writes one block to boot.log: the signal, the fault address, rip, the current stage of each
 // thread group, and a short list of return addresses, each as an offset from an anchor symbol so the

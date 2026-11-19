@@ -277,9 +277,12 @@ struct UpdateView
 {
 	update::Status st;
 	bool helper = false;
+	bool old_helper = false; // a helper of 1.1 or older runs (it has no updater): restart the PS5
 	double polled = -1;
 };
 UpdateView g_upd;
+// Cross on "Installed: close and open again": the app ends the normal way (QuitForUpdate)
+std::string g_quit_for_update;
 
 void PollUpdate(bool force)
 {
@@ -287,14 +290,17 @@ void PollUpdate(bool force)
 		return;
 	g_upd.polled = Now();
 	std::string reply;
-	g_upd.helper = jailbreak::UpdateRequest("status", reply) && update::Decode(reply, g_upd.st);
+	const bool was_old = g_upd.old_helper;
+	g_upd.helper = jailbreak::UpdateRequest("status", reply, &g_upd.old_helper) && update::Decode(reply, g_upd.st);
+	if (g_upd.old_helper && !was_old)
+		OrbisLog("[update] the helper running is an earlier version's (no updater): restart the PS5");
 }
 
 std::string UpdateValue()
 {
 	char buf[96];
 	if (!g_upd.helper)
-		return "Needs the helper";
+		return g_upd.old_helper ? "Restart the PS5" : "Needs the helper";
 	const update::Status& st = g_upd.st;
 	switch (st.phase)
 	{
@@ -309,7 +315,7 @@ std::string UpdateValue()
 		case update::Phase::Installing:
 			snprintf(buf, sizeof(buf), T("Installing %d/%d"), int(st.done), int(st.total));
 			return buf;
-		case update::Phase::Done: return "Installed: restart";
+		case update::Phase::Done: return "Installed: close and open again";
 		case update::Phase::Failed: return "Failed: try again";
 		default: return "Check now";
 	}
@@ -325,20 +331,14 @@ void UpdateAction()
 		case update::Phase::Downloading:
 		case update::Phase::Installing: break;
 		case update::Phase::Done:
-		{
-			// the new build, opened in this one's place
-			const char* path = "/data/homebrew/" FCEUMM_TITLE_ID "/eboot.bin";
-			OrbisLog("[update] restarting %s", path);
-			Config().Save();
-			OrbisLogClose();
-			const int rc = sceSystemServiceLoadExec(path, nullptr);
-			if (rc == 0)
-				for (int i = 0; i < 100; i++)
-					usleep(100 * 1000);
-			OrbisLogOpen("boot-after-update");
-			OrbisLog("[update] sceSystemServiceLoadExec(%s) -> %x: close the app and open it again", path, unsigned(rc));
+			// The app ends the normal way (a game running is closed, its battery save written; the settings saved) and
+			// is opened again from the home screen, which then runs the new version. Not sceSystemServiceLoadExec of
+			// the eboot (Genesis Plus GX PS5's, FBNeo PS5's): on the console it only ended the app (Media Player Classic
+			// PS5 1.5.4, its #3: PS5 13.60 with ShadowMount+), and the eboot it names may not be the copy the update
+			// went to (ShadowMount+ running the app from a USB drive).
+			g_quit_for_update = g_upd.st.latest.empty() ? "?" : g_upd.st.latest;
+			OrbisLog("[update] %s installed: the app ends, to be opened again", g_quit_for_update.c_str());
 			break;
-		}
 		default: jailbreak::UpdateRequest("check", reply); break;
 	}
 	PollUpdate(true);
@@ -567,7 +567,17 @@ void SettingsScreen(bool over_game)
 				DrawText(80, H - 142 + int(i) * 30, lines[i].c_str(), 2, kAccent);
 		}
 		else if (sel == S_UPDATES && !g_upd.helper)
-			DrawText(80, H - 130, T("Updates are downloaded by the helper: send the payload, then open Settings again."), 2, kDim);
+		{
+			// on a band of its own, as the reasons above: the line would cross the box's edge
+			ps5video::FillRect(0, H - 148, W, 68, kBg);
+			DrawText(80, H - 130,
+				FitText(T(g_upd.old_helper
+							  ? "The helper of an earlier version runs (it can't update): restart the PS5, then open the app again."
+							  : "Updates are downloaded by the helper: send the payload, then open Settings again."),
+					2, W - 160)
+					.c_str(),
+				2, kDim);
+		}
 		if (!over_game)
 			Footer(std::string(icon::Cross) + " " + T("Change") + "     " + icon::DpadLeftRight + " " + T("Adjust") + "     " + icon::Circle + " " + T("Back"));
 		Present();
@@ -582,6 +592,11 @@ void SettingsScreen(bool over_game)
 		{
 			if (n.ok)
 				UpdateAction();
+			if (!g_quit_for_update.empty())
+			{
+				Config().Save();
+				return; // the shelf or the pause menu ends the app (QuitForUpdate)
+			}
 		}
 		else if (sel == S_NETWORK)
 		{
@@ -632,6 +647,11 @@ std::vector<std::string> Wrap(const std::string& text, int scale, int max_px)
 void SettingsMenu()
 {
 	SettingsScreen(false);
+}
+
+std::string QuitForUpdate()
+{
+	return g_quit_for_update;
 }
 
 PauseAction PauseMenu()
@@ -738,6 +758,8 @@ PauseAction PauseMenu()
 					return PauseAction::Resume;
 				case I_SETTINGS:
 					SettingsScreen(true);
+					if (!g_quit_for_update.empty())
+						return PauseAction::Quit; // an update installed: the game is closed, the app ends
 					nav = NavReader();
 					break;
 				case I_RESET:

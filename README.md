@@ -131,7 +131,18 @@ not released on their own.
   Snes9x PS5 2.11's version of the updater). See [Updates](#updates).
 - The helper's HTTPS (covers, updates): Mbed TLS's threading layer (the covers and the updates run side by side),
   a chunk size near 2^64 no longer wraps the download limit, no redirect from HTTPS down to plain HTTP.
-- The build: a new version rebuilds every file that carries it (`build/defs.stamp`).
+- **C++ exceptions in the app** (the "lesson 2" of Snes9x PS5 2.10 and FBNeo PS5 2.2): up to 1.1 the eboot took the
+  C++ runtime's personality routine and type tables from the system's library next to its own `__cxa_throw` and
+  unwinder, the mix Stella PS5 1.0 crashed with at its first exception. The eboot now carries its own whole runtime
+  (libc++, libc++abi, libunwind linked before the system's stubs), and every build checks it
+  (`tools/check_imports.py`: no C++ runtime import, only the eleven system modules a title may load;
+  `tools/check_syscalls.py`: no raw system call); a failed allocation is a `std::bad_alloc` instead of stopping the
+  app; with the debug logs on, `boot.log` says `exceptions: ok` at start.
+- Turbo A and Turbo B for players 3 and 4 (FCEUmm's own turbo only covers players 1 and 2).
+- A thread the system refuses (sound, notifications, the shelf's drawing, covers, network shares) no longer ends the
+  app; SIGSYS is in the crash report.
+- The build: a new version rebuilds every file that carries it (`build/defs.stamp`); the two identical home-screen
+  backgrounds are built into the ELF once (30.2 MB -> 22.2 MB).
 
 ## Updates
 
@@ -139,7 +150,9 @@ From 1.2 on, the app updates itself from this repository's GitHub releases, as G
 (after [Porpoise](https://github.com/elripalda/Porpoise-Dolphin-Emulator-for-PS5)):
 
 - **Settings, SYSTEM, Updates** shows the version you have and what to do: *Check now*, *Install 1.3 (20 MB)*, the
-  download and install progress, then *Installed: restart* (Cross opens the new version).
+  download and install progress, then *Installed: close and open again*: Cross closes the app (a game running is
+  closed first, its save written), and opening it from the home screen runs the new version. (Restarting it from
+  inside, as Genesis Plus GX PS5 does, only ended Media Player Classic PS5 on the console.)
 - Once a day, when the app starts, it checks by itself; when a newer version is out, a notification says so.
   Nothing is installed without you choosing *Install*.
 - The helper does the work (the app's own HTTPS doesn't work once it is out of its sandbox), with its own HTTPS
@@ -147,8 +160,8 @@ From 1.2 on, the app updates itself from this repository's GitHub releases, as G
   newest release and takes its asset `NESFCEUmmPS5-v<version>-PPSA99013.zip`.
 - The zip is checked before anything is written: its size and SHA-256 against what GitHub gives, then every file
   against the zip's own list (`PPSA99013/manifest.sha256`). Each file is written beside the old one, then all are put
-  in place with `eboot.bin` last; files the new version no longer has are removed, and the home screen's copy of the
-  art is refreshed. If anything fails before that, nothing has changed. No copy of the old version is kept.
+  in place with `eboot.bin` last; files an earlier update installed that the new version no longer has are removed
+  (the manifest it left says which), and the home screen's copy of the art is refreshed. If anything fails before that, nothing has changed. No copy of the old version is kept.
 - Only the app's folder changes: `/data/homebrew/PPSA99013/`, or the folder ShadowMount+ runs the app from when it
   mounted another one on `/system_ex/app/PPSA99013` (a USB or extended drive's `homebrew/PPSA99013`, a folder of its
   scan paths): the update is written there, through the mount, so the copy the console runs is the one updated. An
@@ -156,10 +169,13 @@ From 1.2 on, the app updates itself from this repository's GitHub releases, as G
   place: Settings, Updates says so (update the image or the folder by hand). When the place can't be told for sure
   (no mount table, a mount that isn't ShadowMount+'s), the update goes to `/data/homebrew/PPSA99013/`. The installer
   payload follows the same rules. Games, saves and settings (`/data/fceumm/`) aren't touched.
-- **Your autoload:** the app updated this way is newer than the ELF in your autoload. The older ELF sees that and
-  leaves the app alone (its notification says so), and its helper still serves the newer app. Put the new ELF in
-  your autoload when you can: a new version may come with a new helper.
-- **From 1.1:** 1.1 has no updater, so 1.2 is installed with its ELF; the versions after it come through the app.
+- **Your autoload:** the app updated this way is newer than the ELF in your autoload. An ELF of 1.2 or later sees
+  that and leaves the app alone (its notification says so), and its helper still serves the newer app. Put the new ELF
+  in your autoload when you can: a new version may come with a new helper. **A 1.1 ELF in your autoload doesn't know
+  this**: it installs 1.1 again at every start of the console, over the newer app. Replace it with 1.2's.
+- **From 1.1:** 1.1 has no updater, so 1.2 is installed with its ELF; the versions after it come through the app. 1.1's
+  helper keeps running until the console is restarted, and it can't update: until then Settings, Updates says
+  *Restart the PS5* (and the 1.2 ELF's notification says so too).
 
 For a release, `make dist` builds the zip (`build/dist/NESFCEUmmPS5-v<version>-PPSA99013.zip`, the app folder stored
 without compression, with its manifest). Attach it to the GitHub release, tagged `v<version>`, next to the ELF.
@@ -452,12 +468,14 @@ CONTROLS, **4-player adapter**:
   Score)", "Auto (Famicom adapter)", "Auto (2 players)".
 - **Off (2 players)**: no adapter, also for the games of FCEUmm's lists.
 - **NES Four Score** / **Famicom 4-player adapter**: that adapter for every game (a hack, a homebrew or a dump the
-  lists don't know). Most two-player games don't mind an adapter they don't use.
+  lists don't know). Most two-player games don't mind an adapter they don't use; with the Famicom adapter, though, many
+  Japanese games read its players as players 1 and 2 too (as on a real Famicom): players 3 and 4 then also move them.
 
 A game started with an adapter says so for a moment ("NES Four Score: players 3 and 4 can join"). The setting
 applies at once, in the game too, and is kept in `fceumm-ps5.ini` (`four_player=0` Auto, `1` Off, `2` Four Score, `3`
-Famicom adapter); it is the same for every game. `boot.log` says which adapter a game got and why (`4-player adapter:
-NES Four Score (Auto: Mesen's database, CRC FF8203D5)`).
+Famicom adapter); it is the same for every game. With the debug logs on, `boot.log` says which adapter a game got and
+why (`4-player adapter: NES Four Score (Auto: Mesen's database, CRC FF8203D5)`). Turbo A and Turbo B work for players
+3 and 4 too.
 
 ## Settings
 

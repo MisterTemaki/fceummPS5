@@ -10,11 +10,27 @@
 
 #include "ProsperoCrash.h"
 
+#include <cstdlib>
 #include <functional>
 #include <pthread.h>
 
 namespace ps5
 {
+// The host tests (FCEUMM_HOST_NO_THREADS=1, 1.2): a system that refuses every new thread. BigThread then starts nothing
+// (joinable() false), and the std::thread sites (the audio and notification threads) treat it as the
+// std::system_error a refused std::thread throws. Always false on the console.
+inline bool HostRefusesThreads()
+{
+#ifndef __PROSPERO__
+	const char* e = getenv("FCEUMM_HOST_NO_THREADS");
+	return e && *e == '1';
+#else
+	return false;
+#endif
+}
+
+// 1.2: every user of a BigThread checks joinable() after starting one: a thread the system refused must not be waited
+// for, nor counted on (the shelf's render pool, the cover worker, netfs's mounters and read-ahead, the background check).
 class BigThread
 {
 public:
@@ -25,6 +41,9 @@ public:
 	// Starts fn on a thread with a `stack_bytes` stack. Falls back to the default stack if that is refused.
 	BigThread(std::function<void()> fn, size_t stack_bytes)
 	{
+		// the host tests: FCEUMM_HOST_NO_THREADS=1 stands for a system that refuses every new thread
+		if (HostRefusesThreads())
+			return;
 		auto* holder = new std::function<void()>(std::move(fn));
 		pthread_attr_t attr;
 		pthread_attr_init(&attr);

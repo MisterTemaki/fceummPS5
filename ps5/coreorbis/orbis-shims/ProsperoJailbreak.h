@@ -60,8 +60,10 @@ bool RequestForSelf(std::string& how);
 // `background`: the helper downloads them itself (the app downloads nothing at start).
 bool FetchWantedCovers(std::string& text, bool* background = nullptr);
 
-// The app side: one updater request to our own helper (kCmdUpdate). False when no helper of ours answered.
-bool UpdateRequest(const char* what, std::string& reply);
+// The app side: one updater request to our own helper (kCmdUpdate). False when no helper of ours answered;
+// *old_helper (when given): a helper took the request and closed without an answer -- one of NES FCEUmm PS5 1.1 or
+// older, which has no updater (it runs until the console is restarted).
+bool UpdateRequest(const char* what, std::string& reply, bool* old_helper = nullptr);
 
 // The helper ELF built into the app (helper_data.cpp in the native eboot; nothing elsewhere).
 struct Blob
@@ -74,6 +76,9 @@ Blob EmbeddedHelper();
 // The payload side: serve requests on 127.0.0.1:kHelperPort until the process ends. Returns false at once
 // when the port is taken (a helper is already running). `on_ready` runs once the port is bound.
 bool ServeHelper(void (*on_ready)());
+// 1.2's review: the helper running is one of NES FCEUmm PS5 1.1 or older (it takes an update request and closes
+// without an answer). It runs until the console is restarted, and has no updater: the payload says so.
+bool RunningHelperIsOld();
 
 // Lets one process out (payload only; the host build fakes it). False with a reason when it refuses.
 bool JailbreakProcess(int pid, std::string& why);

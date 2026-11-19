@@ -200,6 +200,13 @@ NetfsConnectionTest::NetfsConnectionTest(const ShareConfig& cfg) : m(new Impl)
 	m->deadline = NowMs() + kNetfsConnectLimitMs;
 	Impl* impl = m.get();
 	m->thread = ps5::BigThread([impl] { impl->Run(); }, 512 * 1024);
+	if (!m->thread.joinable())
+	{
+		// 1.2: no thread (the system refused it): the test ends at once, saying so
+		m->finished = true;
+		m->result.text = "The test could not start (the system refused a thread).";
+		m->done.store(true);
+	}
 }
 
 NetfsConnectionTest::~NetfsConnectionTest()

@@ -13,9 +13,12 @@
 #include "ProsperoCrash.h"
 #include "ProsperoSce.h"
 
+#include "ProsperoThread.h"
+
 #include <atomic>
 #include <cstring>
 #include <unistd.h>
+#include <system_error>
 #include <thread>
 
 namespace ps5audio
@@ -83,7 +86,21 @@ bool Init()
 		return false;
 	g = new State();
 	g->handle = handle;
-	g->thread = std::thread(Run);
+	// 1.2: a thread the system refuses is std::system_error from std::thread (uncaught, it ended the app): no sound then
+	try
+	{
+		if (ps5::HostRefusesThreads())
+			throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
+		g->thread = std::thread(Run);
+	}
+	catch (const std::system_error& e)
+	{
+		OrbisLog("[audio] no thread for the sound (%s): running without sound", e.what());
+		sceAudioOutClose(handle);
+		delete g;
+		g = nullptr;
+		return false;
+	}
 	return true;
 }
 

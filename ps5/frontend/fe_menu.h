@@ -17,6 +17,9 @@ PauseAction PauseMenu();
 
 // The settings screen (Triangle on the shelf, or from the pause menu).
 void SettingsMenu();
+// 1.2: the version an update installed when the player chose to close the app for it (Settings, Updates,
+// "Installed: close and open again"); "" otherwise. The shelf and the pause menu then end the app.
+std::string QuitForUpdate();
 
 // Settings > Network shares: the SMB and NFS shares games are read from (fe_netscreen.cpp, from Snes9x PS5).
 void NetworkMenu();
