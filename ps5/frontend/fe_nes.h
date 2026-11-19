@@ -1,5 +1,6 @@
 /* NES FCEUmm PS5: a few calls into FCEUmm's core that its libretro interface doesn't offer (fe_nes.c, built with
- * the core's headers): the Famicom Disk System's drive, the VS System's coin slot, and a palette of 64 colours.
+ * the core's headers): the Famicom Disk System's drive, the VS System's coin slot, a palette of 64 colours, and the
+ * cartridge's CRC (the 4-player adapter's Auto).
  * SPDX-License-Identifier: MIT */
 #pragma once
 
@@ -29,6 +30,10 @@ void fe_nes_vs_coin(void);
 
 /* rgb: 64 colours, R G B each; the core derives the colour-emphasis ones from them, as for its own palettes. */
 void fe_nes_set_palette(const uint8_t* rgb);
+
+/* The PRG + CHR CRC32 of the cartridge FCEUmm just loaded, the one its own four-player lists and Mesen's database go
+ * by: unif 0 for an iNES / NES 2.0 file, 1 for a UNIF file. 0 when no cartridge is loaded. */
+uint32_t fe_nes_cart_crc(int unif);
 
 #ifdef __cplusplus
 }

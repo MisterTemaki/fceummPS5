@@ -140,6 +140,14 @@ const Choice kTurboSpeeds[] = {
 };
 const int kTurboSpeedCount = int(sizeof(kTurboSpeeds) / sizeof(kTurboSpeeds[0]));
 
+const Choice kFourPlayers[] = {
+	{"Auto", ""},
+	{"Off (2 players)", ""},
+	{"NES Four Score", ""},
+	{"Famicom 4-player adapter", ""},
+};
+const int kFourPlayerCount = int(sizeof(kFourPlayers) / sizeof(kFourPlayers[0]));
+
 const PadButton kPs5Buttons[] = {
 	{"Cross", SCE_PAD_BUTTON_CROSS},
 	{"Circle", SCE_PAD_BUTTON_CIRCLE},
@@ -303,7 +311,9 @@ struct State
 	int16_t prev_l = 0, prev_r = 0;
 	std::vector<int16_t> out;
 	std::vector<int16_t> silence; // the zeros that refill a dry ring
-	int pads_applied = -1; // the pad type / adapter last given to the core
+	int pads_applied = -1; // the 4-player adapter last given to the core (fe::FourPlayer); -1: none yet, for this game
+	fe::FourPlayer four_auto = fe::FourPlayer::None; // the one the game is made for (DetectFourPlayer)
+	std::string four_why;                            // where that comes from, for the log
 
 	// pads
 	ps5input::PadState pads[ps5input::kMaxPads];
@@ -829,15 +839,85 @@ void DeinitCore()
 	g.inited = false;
 }
 
-// The pads: four RetroPads (FCEUmm plugs in a Four Score by itself for the games that use one, from its database).
+// The 4-player adapter the game is made for, the setting's Auto: FCEUmm's own lists, then Mesen's database (both by the
+// cartridge's PRG + CHR CRC32 as FCEUmm computed it: data/nes4p.tsv), then an NES 2.0 header's expansion device.
+static fe::FourPlayer DetectFourPlayer(std::string* why)
+{
+	why->clear();
+	const bool ines = g.rom.size() >= 16 && memcmp(g.rom.data(), "NES\x1a", 4) == 0;
+	const bool unif = !ines && g.rom.size() >= 4 && memcmp(g.rom.data(), "UNIF", 4) == 0;
+	if (ines || unif)
+	{
+		const char* source = "";
+		const uint32_t crc = fe_nes_cart_crc(unif ? 1 : 0);
+		const fe::FourPlayer f = fe::NesFourPlayer(crc, &source);
+		if (f != fe::FourPlayer::None)
+		{
+			*why = Fmt("%s, CRC %08X", source, unsigned(crc));
+			return f;
+		}
+	}
+	const fe::FourPlayer h = fe::NesHeaderFourPlayer(g.rom);
+	if (h != fe::FourPlayer::None)
+		*why = "its NES 2.0 header";
+	return h;
+}
+
+static fe::FourPlayer AdapterInUse()
+{
+	switch (fe::Config().four_player)
+	{
+		case 1: return fe::FourPlayer::None;
+		case 2: return fe::FourPlayer::FourScore;
+		case 3: return fe::FourPlayer::Famicom;
+		default: return g.four_auto;
+	}
+}
+
+// The pads. Players 1 and 2 on the NES's two ports, as FCEUmm sets them up for the game; players 3 and 4 on the
+// 4-player adapter (Settings, CONTROLS): the NES Four Score (FCEUmm's ports 3 and 4 as pads, its Four Score on) or
+// the Famicom's adapter (those pads, and its expansion port's 4-player adapter, which turns the Four Score off), or
+// none (ports 3 and 4 empty, the expansion port empty: what FCEUmm put there for its own list is taken out). Given
+// again when the setting changes, in the game too.
+constexpr unsigned kRetroGamepad = RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 1);    // libretro.c's GAMEPAD
+constexpr unsigned kRetroFc4Players = RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_JOYPAD, 2); // and FC_4PLAYERS
 void ApplyControllers()
 {
-	if (g.pads_applied == 1)
+	const fe::FourPlayer a = AdapterInUse();
+	if (g.pads_applied == int(a))
 		return;
-	g.pads_applied = 1;
-	for (unsigned port = 0; port < 4; port++)
-		retro_set_controller_port_device(port, RETRO_DEVICE_JOYPAD);
-	OrbisLog("[emu] controllers: 4 pads (FCEUmm's auto: a Four Score for the games that use one)");
+	const bool first = g.pads_applied < 0;
+	g.pads_applied = int(a);
+	if (first)
+		for (unsigned port = 0; port < 2; port++)
+			retro_set_controller_port_device(port, RETRO_DEVICE_JOYPAD); // FCEUmm's auto: what the game uses
+	const unsigned extra = a == fe::FourPlayer::None ? RETRO_DEVICE_NONE : kRetroGamepad;
+	retro_set_controller_port_device(2, extra);
+	retro_set_controller_port_device(3, extra);
+	// the expansion port last: FCEUmm decides whether the Four Score is on from ports 3, 4 and this one
+	retro_set_controller_port_device(4, a == fe::FourPlayer::Famicom ? kRetroFc4Players : RETRO_DEVICE_NONE);
+	const int setting = fe::Config().four_player % kFourPlayerCount;
+	OrbisLog("[emu] controllers: players 1-2 on the NES's ports, 4-player adapter: %s (%s%s%s)",
+		a == fe::FourPlayer::None ? "none, 2 players" : (a == fe::FourPlayer::FourScore ? "NES Four Score" : "Famicom's"),
+		setting == 0 ? "Auto" : "the setting", setting == 0 && !g.four_why.empty() ? ": " : "",
+		setting == 0 ? g.four_why.c_str() : "");
+	if (first && a != fe::FourPlayer::None)
+		Osd(Fmt(fe::T("%s: players 3 and 4 can join"), fe::T(kFourPlayers[a == fe::FourPlayer::FourScore ? 2 : 3].name)));
+}
+
+int FourPlayerAuto()
+{
+	return g.loaded ? int(g.four_auto) : -1;
+}
+
+const char* FourPlayerName(int adapter)
+{
+	switch (adapter)
+	{
+		case 1: return "Four Score";
+		case 2: return "Famicom adapter";
+		default: return "2 players";
+	}
 }
 
 void ApplySettings()
@@ -998,6 +1078,7 @@ bool LoadGame(const std::string& path, std::string* error)
 		g.file_data.clear();
 		return false;
 	}
+	g.four_auto = DetectFourPlayer(&g.four_why);
 	g.pads_applied = -1;
 	ApplyControllers();
 	retro_system_av_info av = {};

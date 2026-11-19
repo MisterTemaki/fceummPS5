@@ -34,6 +34,7 @@ struct Settings
 	int state_slot = 1; // 1..10
 	// controls
 	int turbo = 2; // emu::kTurboSpeeds: frames between turbo presses
+	int four_player = 0; // emu::kFourPlayers: the 4-player adapter: Auto (the game's), off, NES Four Score, Famicom's
 	// the PS5 button (index in emu::kPs5Buttons) of each console button, in emu::kConsoleButtons' order:
 	// A, B, turbo A, turbo B, Start, Select, disk side, disk in/out, coin. By position by default: Circle, Cross,
 	// Triangle, Square, OPTIONS, touchpad, L1, R1, none.

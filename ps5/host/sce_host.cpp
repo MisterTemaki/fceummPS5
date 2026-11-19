@@ -2,6 +2,8 @@
 // whole port (main-boot, shims, frontend, core) runs unchanged in the tests.
 //
 //   FCEUMM_HOST_PAD="frame:hexbuttons[;frame:hexbuttons...]"  pad 1 script (by flip count)
+//   FCEUMM_HOST_USERS=n                                       signed-in users, each with a pad (1-4; default 1)
+//   FCEUMM_HOST_PAD2 / _PAD3 / _PAD4="frame:hexbuttons..."    the other users' pads (players 2-4)
 //   FCEUMM_HOST_DUMP="frame[,frame...]"                       flips to save as PPM (de-tiled)
 //   FCEUMM_HOST_DUMP_DIR=dir                                  where (default .)
 //   FCEUMM_HOST_MAX_FLIPS=n                                   abort after n flips (a hang guard)
@@ -11,6 +13,7 @@
 
 #include "ProsperoSce.h"
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <chrono>
@@ -31,7 +34,10 @@ SceVideoOutBuffers g_bufs[2];
 int g_w = 0, g_h = 0;
 std::atomic<uint64_t> g_flips{0};
 std::atomic<uint64_t> g_audio_frames{0};
-std::map<uint64_t, uint32_t> g_script;
+constexpr int kUsers = 4;
+constexpr int32_t kFirstUser = 0x10000001;
+std::map<uint64_t, uint32_t> g_script[kUsers];
+int g_users = 1;
 std::set<uint64_t> g_dumps;
 bool g_inited = false;
 
@@ -40,8 +46,14 @@ void InitEnv()
 	if (g_inited)
 		return;
 	g_inited = true;
-	if (const char* s = getenv("FCEUMM_HOST_PAD"))
+	if (const char* u = getenv("FCEUMM_HOST_USERS"))
+		g_users = std::max(1, std::min(kUsers, atoi(u)));
+	for (int user = 0; user < kUsers; user++)
 	{
+		const std::string name = user == 0 ? "FCEUMM_HOST_PAD" : "FCEUMM_HOST_PAD" + std::to_string(user + 1);
+		const char* s = getenv(name.c_str());
+		if (!s)
+			continue;
 		std::string str = s;
 		size_t pos = 0;
 		while (pos < str.size())
@@ -52,7 +64,7 @@ void InitEnv()
 			const std::string item = str.substr(pos, end - pos);
 			const size_t colon = item.find(':');
 			if (colon != std::string::npos)
-				g_script[strtoull(item.substr(0, colon).c_str(), nullptr, 10)] =
+				g_script[user][strtoull(item.substr(0, colon).c_str(), nullptr, 10)] =
 					uint32_t(strtoul(item.substr(colon + 1).c_str(), nullptr, 16));
 			pos = end + 1;
 		}
@@ -319,26 +331,40 @@ static bool PadShared()
 	const char* e = getenv("FCEUMM_HOST_PAD_SHARED");
 	return e && *e && strcmp(e, "0") != 0;
 }
-int scePadOpen(int, int, int, void*)
+// user n (0-3: 0x10000001...) has handle 0x100 + n; the first user's is the system's with FCEUMM_HOST_PAD_SHARED
+static int UserIndex(int32_t user)
 {
-	return PadShared() ? SCE_PAD_ERROR_ALREADY_OPENED : 0x100;
+	InitEnv();
+	const int i = int(user - kFirstUser);
+	return i >= 0 && i < g_users ? i : -1;
 }
-int scePadGetHandle(int, int, int)
+int scePadOpen(int user, int, int, void*)
 {
-	return PadShared() ? (int)0x809b0081 : 0x100;
+	const int i = UserIndex(user);
+	if (i < 0)
+		return (int)0x80920001; // invalid argument
+	return i == 0 && PadShared() ? SCE_PAD_ERROR_ALREADY_OPENED : 0x100 + i;
+}
+int scePadGetHandle(int user, int, int)
+{
+	const int i = UserIndex(user);
+	if (i < 0)
+		return (int)0x80920001;
+	return i == 0 && PadShared() ? (int)0x809b0081 : 0x100 + i;
 }
 int scePadReadState(int handle, ScePadData* data)
 {
 	InitEnv();
-	if (handle != (PadShared() ? (int)0x809b0081 : 0x100))
+	int i = handle == (int)0x809b0081 && PadShared() ? 0 : handle - 0x100;
+	if (i < 0 || i >= g_users || (i == 0 && PadShared() && handle != (int)0x809b0081))
 		return (int)0x80920003; // invalid handle
 	memset(data, 0, sizeof(*data));
 	data->connected = 1;
 	data->leftStick.x = data->leftStick.y = 128;
 	data->rightStick.x = data->rightStick.y = 128;
 	const uint64_t now = g_flips.load();
-	auto it = g_script.upper_bound(now);
-	if (it != g_script.begin())
+	auto it = g_script[i].upper_bound(now);
+	if (it != g_script[i].begin())
 		data->buttons = std::prev(it)->second;
 	return 0;
 }
@@ -362,8 +388,9 @@ int sceUserServiceGetForegroundUser(int32_t* user)
 }
 int sceUserServiceGetLoginUserIdList(int32_t users[4])
 {
-	users[0] = 0x10000001;
-	users[1] = users[2] = users[3] = -1;
+	InitEnv();
+	for (int i = 0; i < 4; i++)
+		users[i] = i < g_users ? kFirstUser + i : -1;
 	return 0;
 }
 

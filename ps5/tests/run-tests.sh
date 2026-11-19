@@ -508,7 +508,7 @@ rc=$(run "$T" "0:0;100:$CROSS;140:0;160:$TRIANGLE;200:0;$(QUITAT 220)" "130,190"
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "$CHECK $T/dump/flip00130.ppm 960 540 red >/dev/null" "B on Triangle: Cross no longer presses B"
 expect "$CHECK $T/dump/flip00190.ppm 960 540 green >/dev/null" "B on Triangle: Triangle presses B"
-expect "grep -q 'controllers: 4 pads' $T/root/logs/boot.log" "four pads plugged in (FCEUmm adds the Four Score for the games that use one)"
+expect "grep -q 'controllers: players 1-2 on the NES.s ports, 4-player adapter: none, 2 players (Auto)' $T/root/logs/boot.log" "two pads plugged in (no 4-player adapter for a game not made for one: group 35)"
 # Turbo B (Square by default): held, B goes on and off by itself
 T=$(newroot t20b)
 $ROM "$T/root/roms/test.nes" >/dev/null
@@ -520,10 +520,10 @@ for f in $(seq 170 185); do
 done
 expect "[ $rc = 0 ] && [ $reds -ge 3 ] && [ $greens -ge 3 ]" "Square held: turbo B ($reds red, $greens green frames of 16)"
 nosan "$T"
-# the settings screen: Turbo speed is the first CONTROLS row (20 rows below Shader), then A
+# the settings screen: Turbo speed is the second CONTROLS row (21 rows below Shader; the 4-player adapter is the first), then A
 T=$(newroot t20d)
 $ROM "$T/root/roms/Alpha (USA).nes" >/dev/null
-rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;40:$DOWN;42:0;46:$DOWN;48:0;52:$DOWN;54:0;58:$DOWN;60:0;64:$DOWN;66:0;70:$DOWN;72:0;76:$DOWN;78:0;82:$DOWN;84:0;88:$DOWN;90:0;94:$DOWN;96:0;100:$DOWN;102:0;106:$DOWN;108:0;112:$DOWN;114:0;118:$DOWN;120:0;124:$DOWN;126:0;130:$DOWN;132:0;136:$DOWN;138:0;142:$DOWN;144:0;148:$DOWN;150:0;154:$DOWN;156:0;166:$RIGHT;168:0;172:$DOWN;174:0;178:$RIGHT;180:0;188:$CIRCLE;190:0;198:$OPTIONS;200:0;206:$CROSS;208:0" "184")
+rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;40:$DOWN;42:0;46:$DOWN;48:0;52:$DOWN;54:0;58:$DOWN;60:0;64:$DOWN;66:0;70:$DOWN;72:0;76:$DOWN;78:0;82:$DOWN;84:0;88:$DOWN;90:0;94:$DOWN;96:0;100:$DOWN;102:0;106:$DOWN;108:0;112:$DOWN;114:0;118:$DOWN;120:0;124:$DOWN;126:0;130:$DOWN;132:0;136:$DOWN;138:0;142:$DOWN;144:0;148:$DOWN;150:0;154:$DOWN;156:0;160:$DOWN;162:0;166:$RIGHT;168:0;172:$DOWN;174:0;178:$RIGHT;180:0;188:$CIRCLE;190:0;198:$OPTIONS;200:0;206:$CROSS;208:0" "184")
 expect "[ $rc = 0 ]" "settings screen: exit code 0 (got $rc)"
 expect "grep -q '^turbo=3$' $T/root/fceumm-ps5.ini" "the settings screen changed the turbo speed"
 expect "grep -q '^btn_a=2$' $T/root/fceumm-ps5.ini" "the settings screen moved A to Square"
@@ -1397,6 +1397,65 @@ rc=$(FCEUMM_HOST_REALTIME=1 MAXFLIPS=900 FCEUMM_HOST_NETFS_DIR="$T/share" run "$
 expect "[ $rc = 0 ] && grep -q '\[games\] naming 1 network ROM(s) by CRC' $T/root/logs/boot.log" "the .7z on the share is named in the background (the scan doesn't open it)"
 expect "grep -q 'NES/seven.7z \[nes\] -> \"Tetris (USA)\" (by CRC)' $T/root/logs/boot.log" "by the CRC its directory keeps"
 expect "grep -q 'loading /smb/10.0.0.5/games/NES/seven.7z -> splat.nes' $T/root/logs/boot.log && $CHECK $T/dump/flip00450.ppm 960 540 green >/dev/null" "it starts from the share and runs"
+nosan "$T"
+fi
+
+if want 35; then
+echo "== 35. four players: the 4-player adapter (Auto from FCEUmm's lists, Mesen's database or the NES 2.0 header; off; NES Four Score; the Famicom's adapter), players 3 and 4 on the third and fourth users' pads"
+# the 4p test ROM (make_test_rom.py) shows how it reads each player's B: green / cyan players 3 / 4 through a Four Score,
+# blue / purple through the Famicom's adapter, yellow player 1, red nothing (Mesen's palette: $2A $2C $12 $14 $28 $16)
+GREEN4="92 228 48"; CYAN4="72 205 222"; BLUE4="66 64 255"; PURPLE4="160 26 204"; YELLOW4="188 190 0"; RED4="181 49 32"
+P3="0:0;100:$CROSS;140:0"; P4="0:0;160:$CROSS;200:0"
+four_test() { # name label rom-kind setting want3 want4 [forged CRC] [log pattern]
+	local name=$1 label=$2 kind=$3 setting=$4 want3=$5 want4=$6 crc=${7:-} logpat=${8:-}
+	local T rc
+	T=$(newroot "$name")
+	$ROM "$T/root/roms/four.nes" "$kind" >/dev/null
+	[ -n "$crc" ] && python3 tests/forge_nes_crc.py "$T/root/roms/four.nes" "$crc" >/dev/null
+	[ "$setting" != 0 ] && echo "four_player=$setting" >>"$T/root/fceumm-ps5.ini"
+	rc=$(export FCEUMM_HOST_USERS=4 FCEUMM_HOST_PAD3="$P3" FCEUMM_HOST_PAD4="$P4"
+		run "$T" "0:0;220:$CROSS;260:0;$(QUITAT 280)" "90,130,190,250" "$T/root/roms/four.nes")
+	expect "[ $rc = 0 ]" "$label: exit code 0 (got $rc)"
+	expect "$CHECK $T/dump/flip00090.ppm 960 540 $RED4 >/dev/null" "$label: nothing pressed: red"
+	expect "$CHECK $T/dump/flip00130.ppm 960 540 $want3 >/dev/null" "$label: player 3's Cross (the third user's pad) -> $want3"
+	expect "$CHECK $T/dump/flip00190.ppm 960 540 $want4 >/dev/null" "$label: player 4's Cross -> $want4"
+	expect "$CHECK $T/dump/flip00250.ppm 960 540 $YELLOW4 >/dev/null" "$label: player 1 still plays (yellow)"
+	[ -n "$logpat" ] && expect "grep -q \"4-player adapter: $logpat\" $T/root/logs/boot.log" "$label: boot.log says \"$logpat\""
+	nosan "$T"
+}
+four_test t35a "Auto, a game not made for four players" 4p 0 "$RED4" "$RED4" "" "none, 2 players (Auto)"
+four_test t35b "NES Four Score (the setting)" 4p 2 "$GREEN4" "$CYAN4" "" "NES Four Score (the setting)"
+four_test t35c "Famicom's adapter (the setting): the Four Score is off" 4p 3 "$BLUE4" "$PURPLE4" "" "Famicom's (the setting)"
+four_test t35d "Auto, an NES 2.0 header asking for a Four Score" 4p-fs 0 "$GREEN4" "$CYAN4" "" "NES Four Score (Auto: its NES 2.0 header)"
+four_test t35e "Auto, an NES 2.0 header asking for the Famicom's adapter" 4p-fc 0 "$BLUE4" "$PURPLE4" "" "Famicom's (Auto: its NES 2.0 header)"
+four_test t35f "Auto, a game in Mesen's database only (Nintendo World Cup (USA) (Rev 1)'s CRC)" 4p 0 "$GREEN4" "$CYAN4" FF8203D5 "NES Four Score (Auto: Mesen's database, CRC FF8203D5)"
+four_test t35g "Auto, a Famicom game in Mesen's database only (Nekketsu Koukou Dodgeball-bu (VC)'s CRC)" 4p 0 "$BLUE4" "$PURPLE4" AED38D5A "Famicom's (Auto: Mesen's database, CRC AED38D5A)"
+four_test t35h "Auto, a game in FCEUmm's Four Score list (Bomberman II (USA)'s CRC)" 4p 0 "$GREEN4" "$CYAN4" 1EBB5B42 "NES Four Score (Auto: FCEUmm's list, CRC 1EBB5B42)"
+# 1.1 left FCEUmm's own Four Score on beside the Famicom adapter it plugs in for its Famicom list (green: the Four
+# Score answered first); now the Four Score is off for them
+four_test t35i "Auto, a game in FCEUmm's Famicom list (Bomberman II (Japan)'s CRC)" 4p 0 "$BLUE4" "$PURPLE4" 0C401790 "Famicom's (Auto: FCEUmm's list, CRC 0C401790)"
+four_test t35j "Off, a game in FCEUmm's Famicom list: the adapter FCEUmm plugged in is taken out" 4p 1 "$RED4" "$RED4" 0C401790 "none, 2 players (the setting)"
+four_test t35k "the Four Score set by hand on a game in FCEUmm's Famicom list" 4p 2 "$GREEN4" "$CYAN4" 0C401790 "NES Four Score (the setting)"
+# changed over the game: the pause menu (Down seven times to Settings), the 4-player adapter row (20 rows below Shader)
+# says "Auto (2 players)"; Right twice: Off, NES Four Score; Circle twice: back in the game, where player 3's Cross is
+# green at once. The choice is kept in fceumm-ps5.ini.
+T=$(newroot t35m)
+$ROM "$T/root/roms/four.nes" 4p >/dev/null
+DOWN20=""; for i in $(seq 20); do DOWN20="$DOWN20 $DOWN"; done
+PAD1="0:0;$(SEQ 100 $L3R3 $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $CROSS $DOWN20 $RIGHT $RIGHT $CIRCLE $CIRCLE);$(QUITAT 480)"
+rc=$(export FCEUMM_HOST_USERS=4 FCEUMM_HOST_PAD3="0:0;90:$CROSS;95:0;400:$CROSS;440:0"
+	MAXFLIPS=900 run "$T" "$PAD1" "94,330,346,430" "$T/root/roms/four.nes")
+expect "[ $rc = 0 ]" "over the game: exit code 0 (got $rc)"
+expect "$CHECK $T/dump/flip00094.ppm 960 540 $RED4 >/dev/null" "over the game: Auto, two players at first (player 3 does nothing)"
+expect "$CHECK $T/dump/flip00430.ppm 960 540 $GREEN4 >/dev/null" "over the game: after choosing NES Four Score, player 3's Cross is read through it"
+expect "grep -q '^four_player=2$' $T/root/fceumm-ps5.ini" "over the game: the choice is saved (four_player=2)"
+expect "[ \$(grep -c '4-player adapter:' $T/root/logs/boot.log) = 2 ]" "over the game: the adapter given at the start and at NES Four Score (Off is what Auto gave: nothing given again)"
+nosan "$T"
+# a 4-player game started with players 3 and 4 not signed in: nothing breaks (their pads read as released)
+T=$(newroot t35n)
+$ROM "$T/root/roms/four.nes" 4p-fs >/dev/null
+rc=$(run "$T" "0:0;100:$CROSS;140:0;$(QUITAT 200)" "90,130" "$T/root/roms/four.nes")
+expect "[ $rc = 0 ] && $CHECK $T/dump/flip00090.ppm 960 540 $RED4 >/dev/null && $CHECK $T/dump/flip00130.ppm 960 540 $YELLOW4 >/dev/null" "a Four Score game with one user: player 1 plays, the others read as released"
 nosan "$T"
 fi
 

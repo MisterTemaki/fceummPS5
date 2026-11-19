@@ -105,6 +105,8 @@ void Settings::Load()
 			header_db = n != 0;
 		else if (key == "turbo")
 			turbo = Clamp(n, 0, 7);
+		else if (key == "four_player")
+			four_player = Clamp(n, 0, 3);
 		else if (key.compare(0, 4, "btn_") == 0)
 		{
 			for (int i = 0; i < kButtons; i++)
@@ -161,6 +163,7 @@ void Settings::Save() const
 	fprintf(f, "ram_state=%d\n", ram_state);
 	fprintf(f, "header_db=%d\n", header_db ? 1 : 0);
 	fprintf(f, "turbo=%d\n", turbo);
+	fprintf(f, "four_player=%d\n", four_player);
 	for (int i = 0; i < kButtons; i++)
 		fprintf(f, "%s=%d\n", kButtonKeys[i], buttons[i]);
 	fprintf(f, "state_slot=%d\n", state_slot);

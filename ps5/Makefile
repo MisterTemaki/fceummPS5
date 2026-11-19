@@ -140,13 +140,14 @@ DEFS := -DFCEUMM_PS5_VERSION='"$(VERSION)"' -DFCEUMM_CORE_VERSION='"$(CORE_VERSI
 MINIZIP_FLAGS := -DNOUNCRYPT -I$(ROOT)/ps5/third_party/zlib -w
 PORT_WARN := -Wall -Wextra -Werror -Wno-unused-parameter -Wno-missing-field-initializers
 
-# the game-name table built into fe_games.o (tools/make_gamedb.py), the header corrections into fe_nesdb.o
-# (tools/make_nesdb.py)
+# the game-name table built into fe_games.o (tools/make_gamedb.py), the header corrections and the four-player games
+# into fe_nesdb.o (tools/make_nesdb.py, tools/make_nes4p.py)
 GAMEDB_DEFS := -DGAMEDB_TSV='"$(abspath frontend/data/nointro.tsv)"'
 %/port/frontend/fe_games.o: EXTRA_FLAGS = $(GAMEDB_DEFS)
 %/port/frontend/fe_games.o: frontend/data/nointro.tsv
-%/port/frontend/fe_nesdb.o: EXTRA_FLAGS = -DNESDB_TSV='"$(abspath frontend/data/nesdb.tsv)"'
-%/port/frontend/fe_nesdb.o: frontend/data/nesdb.tsv
+%/port/frontend/fe_nesdb.o: EXTRA_FLAGS = -DNESDB_TSV='"$(abspath frontend/data/nesdb.tsv)"' \
+	-DNES4P_TSV='"$(abspath frontend/data/nes4p.tsv)"'
+%/port/frontend/fe_nesdb.o: frontend/data/nesdb.tsv frontend/data/nes4p.tsv
 # stb_image in fe_covers.o has warnings of its own
 %/port/frontend/fe_covers.o: EXTRA_FLAGS = -Wno-error -Wno-sign-compare -Wno-unused-but-set-variable -Wno-implicit-fallthrough
 # the UI fonts (PS5SX2's: PCSX2's Roboto Regular and PromptFont; Font Awesome's brands) built into fe_text.o

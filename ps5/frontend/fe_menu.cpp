@@ -238,6 +238,7 @@ enum SettingRow
 	S_RAMSTATE,
 	S_HEADERDB,
 	H_CONTROLS,
+	S_FOURPLAYER,
 	S_TURBO,
 	S_BTN_FIRST,
 	S_BTN_LAST = S_BTN_FIRST + emu::kConsoleButtonCount - 1,
@@ -300,6 +301,11 @@ Row SettingRowFor(int s)
 		case S_RAMSTATE: return {"RAM at power-on (next start)", emu::kRamStates[c.ram_state % emu::kRamStateCount].name};
 		case S_HEADERDB: return {"Fix headers (Mesen's database; next start)", OnOff(c.header_db)};
 		case H_CONTROLS: return {"CONTROLS (NES pad button  ->  PS5 button)", "", true, true};
+		case S_FOURPLAYER:
+			// Auto says, over a game, which adapter it gave the game
+			if (c.four_player % emu::kFourPlayerCount == 0 && emu::FourPlayerAuto() >= 0)
+				return {"4-player adapter", Fmt(T("Auto (%s)"), T(emu::FourPlayerName(emu::FourPlayerAuto())))};
+			return {"4-player adapter", emu::kFourPlayers[c.four_player % emu::kFourPlayerCount].name};
 		case S_TURBO: return {"Turbo speed", emu::kTurboSpeeds[c.turbo % emu::kTurboSpeedCount].name};
 		case S_BTN_DEFAULT: return {"Default button layout", ""};
 		case H_LIBRARY: return {"LIBRARY", "", true, true};
@@ -357,6 +363,7 @@ void ChangeSetting(int s, int dir)
 		case S_SPRITES: c.no_sprite_limit = !c.no_sprite_limit; break;
 		case S_RAMSTATE: c.ram_state = Cycle(c.ram_state, dir, emu::kRamStateCount); break;
 		case S_HEADERDB: c.header_db = !c.header_db; break;
+		case S_FOURPLAYER: c.four_player = Cycle(c.four_player, dir, emu::kFourPlayerCount); break;
 		case S_TURBO: c.turbo = Cycle(c.turbo, dir, emu::kTurboSpeedCount); break;
 		case S_COVERS: c.covers_download = !c.covers_download; break;
 		case S_LANGUAGE: c.language = Cycle(c.language, dir, int(Language::Count)); break;

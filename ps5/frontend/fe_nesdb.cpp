@@ -21,6 +21,7 @@
 	extern "C" const char sym##_end[];
 
 FCEUMM_NESDB_INCBIN(fceumm_nesdb, NESDB_TSV)
+FCEUMM_NESDB_INCBIN(fceumm_nes4p, NES4P_TSV)
 
 namespace fe
 {
@@ -66,6 +67,43 @@ struct Table
 const Table& T()
 {
 	static const Table t;
+	return t;
+}
+
+struct FourTable
+{
+	struct Item
+	{
+		FourPlayer adapter;
+		bool fceumm; // from FCEUmm's lists (else Mesen's database)
+	};
+	std::unordered_map<uint32_t, Item> map;
+	FourTable()
+	{
+		const char* p = fceumm_nes4p_begin;
+		const char* end = fceumm_nes4p_end;
+		while (p < end)
+		{
+			const char* nl = static_cast<const char*>(memchr(p, '\n', size_t(end - p)));
+			if (!nl)
+				nl = end;
+			const std::string line(p, size_t(nl - p));
+			p = nl + 1;
+			if (line.empty() || line[0] == '#')
+				continue;
+			unsigned crc = 0;
+			char kind = 0;
+			char source[16] = {};
+			if (sscanf(line.c_str(), "%x %c %15s", &crc, &kind, source) != 3 || (kind != 'F' && kind != 'H'))
+				continue;
+			map[crc] = Item{kind == 'F' ? FourPlayer::FourScore : FourPlayer::Famicom, strcmp(source, "fceumm") == 0};
+		}
+	}
+};
+
+const FourTable& FourT()
+{
+	static const FourTable t;
 	return t;
 }
 
@@ -131,5 +169,35 @@ bool FixNesHeader(std::vector<uint8_t>& rom, std::string* what)
 		*what = buf;
 	}
 	return true;
+}
+} // namespace fe
+
+namespace fe
+{
+size_t NesFourPlayerCount()
+{
+	return FourT().map.size();
+}
+
+FourPlayer NesFourPlayer(uint32_t crc, const char** source)
+{
+	auto it = FourT().map.find(crc);
+	if (crc == 0 || it == FourT().map.end())
+		return FourPlayer::None;
+	if (source)
+		*source = it->second.fceumm ? "FCEUmm's list" : "Mesen's database";
+	return it->second.adapter;
+}
+
+FourPlayer NesHeaderFourPlayer(const std::vector<uint8_t>& rom)
+{
+	if (rom.size() < 16 || memcmp(rom.data(), "NES\x1a", 4) != 0 || (rom[7] & 0x0C) != 0x08)
+		return FourPlayer::None;
+	switch (rom[15] & 0x3F)
+	{
+		case 0x02: return FourPlayer::FourScore;
+		case 0x03: return FourPlayer::Famicom;
+		default: return FourPlayer::None;
+	}
 }
 } // namespace fe

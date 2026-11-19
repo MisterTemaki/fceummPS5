@@ -8,6 +8,11 @@
 #include "fds.h"
 #include "git.h"
 #include "vsuni.h"
+#include "cart.h"
+
+/* src/ines.c and src/unif.c: the cartridge being played (not in their headers) */
+extern CartInfo iNESCart;
+extern CartInfo UNIFCart;
 
 int fe_nes_game_type(void)
 {
@@ -41,4 +46,11 @@ void fe_nes_vs_coin(void)
 void fe_nes_set_palette(const uint8_t* rgb)
 {
 	FCEUI_SetPaletteArray((uint8_t*)rgb, 64);
+}
+
+uint32_t fe_nes_cart_crc(int unif)
+{
+	if (!GameInfo || GameInfo->type == GIT_FDS || GameInfo->type == GIT_NSF)
+		return 0;
+	return unif ? UNIFCart.CRC32 : iNESCart.CRC32;
 }

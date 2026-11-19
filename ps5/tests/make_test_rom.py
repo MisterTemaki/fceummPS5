@@ -11,6 +11,16 @@ input mapping.
       pal    an NES 2.0 header, PAL timing (byte 12 = 1)
       sram   battery RAM: the game writes $42 to $6000 every frame, $FF while A/B is held ("erases its save")
       ines1  an iNES 1.0 header saying mapper 0, horizontal mirroring, no battery (the header database test)
+      4p     a four-player test (an NES 2.0 header, no expansion device given): each frame it reads 24 bits from
+             $4016 and $4017 and shows, by the first that holds, in this order:
+               green  $2A  player 3's B through a Four Score (bit 9 of $4016, its signature: bit 19 set, bit 16 clear)
+               cyan   $2C  player 4's B through a Four Score (bit 9 of $4017, its signature: bit 18 set, bit 16 clear)
+               blue   $12  player 3's B through the Famicom's adapter (bit 1 of the second read of $4016)
+               purple $14  player 4's B through the Famicom's adapter (bit 1 of the second read of $4017)
+               yellow $28  player 1's B
+               red    $16  nothing
+      4p-fs  the same, its header's default expansion device (byte 15) the Four Score (2)
+      4p-fc  the same, the Famicom's 4-player adapter (3)
     make_test_rom.py out.unf        the same game as a UNIF file (board NROM)
     make_test_rom.py out.fds        a Famicom Disk System image (fwNES header, one side, an empty disk)
 """
@@ -101,8 +111,64 @@ def program(sram):
     return assemble(0xC000, items)
 
 
+def program_4p():
+    # zero page: $10-$27 the 24 reads of $4016, $30-$47 those of $4017
+    items = [
+        ("label", "reset"),
+        bytes([0x78, 0xD8]),                          # SEI; CLD
+        bytes([0xA2, 0xFF, 0x9A]),                    # LDX #$FF; TXS
+        bytes([0xA9, 0x00, 0x8D, 0x00, 0x20, 0x8D, 0x01, 0x20]),  # PPUCTRL = PPUMASK = 0
+        bytes([0x8D, 0x10, 0x40]),                    # no DMC IRQ
+        bytes([0xA9, 0x40, 0x8D, 0x17, 0x40]),        # no frame IRQ
+        bytes([0x2C, 0x02, 0x20]),                    # BIT $2002
+        ("label", "vw1"), bytes([0x2C, 0x02, 0x20]), (bytes([0x10]), "vw1"),
+        ("label", "vw2"), bytes([0x2C, 0x02, 0x20]), (bytes([0x10]), "vw2"),
+        ("label", "loop"),
+        ("label", "vw"), bytes([0x2C, 0x02, 0x20]), (bytes([0x10]), "vw"),
+        bytes([0xA9, 0x01, 0x8D, 0x16, 0x40, 0xA9, 0x00, 0x8D, 0x16, 0x40]),  # strobe both ports
+        bytes([0xA2, 0x00]),                          # LDX #0
+        ("label", "rd"),
+        bytes([0xAD, 0x16, 0x40, 0x95, 0x10]),        # LDA $4016; STA $10,X
+        bytes([0xAD, 0x17, 0x40, 0x95, 0x30]),        # LDA $4017; STA $30,X
+        bytes([0xE8, 0xE0, 0x18]), (bytes([0xD0]), "rd"),  # INX; CPX #24; BNE rd
+        # player 3 through a Four Score
+        bytes([0xA5, 0x19, 0x25, 0x23, 0x29, 0x01]), (bytes([0xF0]), "nfs3"),  # LDA $19; AND $23; AND #1; BEQ
+        bytes([0xA5, 0x20, 0x29, 0x01]), (bytes([0xD0]), "nfs3"),              # LDA $20; AND #1; BNE
+        bytes([0xA9, 0x2A]), ("abs", 0x4C, "write"),
+        ("label", "nfs3"),
+        # player 4 through a Four Score
+        bytes([0xA5, 0x39, 0x25, 0x42, 0x29, 0x01]), (bytes([0xF0]), "nfs4"),  # LDA $39; AND $42; AND #1; BEQ
+        bytes([0xA5, 0x40, 0x29, 0x01]), (bytes([0xD0]), "nfs4"),              # LDA $40; AND #1; BNE
+        bytes([0xA9, 0x2C]), ("abs", 0x4C, "write"),
+        ("label", "nfs4"),
+        # players 3 and 4 through the Famicom's adapter: bit 1
+        bytes([0xA5, 0x11, 0x29, 0x02]), (bytes([0xF0]), "nfc3"),              # LDA $11; AND #2; BEQ
+        bytes([0xA9, 0x12]), ("abs", 0x4C, "write"),
+        ("label", "nfc3"),
+        bytes([0xA5, 0x31, 0x29, 0x02]), (bytes([0xF0]), "nfc4"),              # LDA $31; AND #2; BEQ
+        bytes([0xA9, 0x14]), ("abs", 0x4C, "write"),
+        ("label", "nfc4"),
+        # player 1
+        bytes([0xA5, 0x11, 0x29, 0x01]), (bytes([0xF0]), "none"),              # LDA $11; AND #1; BEQ
+        bytes([0xA9, 0x28]), ("abs", 0x4C, "write"),
+        ("label", "none"),
+        bytes([0xA9, 0x16]),
+        ("label", "write"),
+        bytes([0xA0, 0x3F, 0x8C, 0x06, 0x20, 0xA0, 0x00, 0x8C, 0x06, 0x20]),  # PPUADDR = $3F00
+        bytes([0x8D, 0x07, 0x20]),                    # the backdrop colour
+        bytes([0xA9, 0x00, 0x8D, 0x06, 0x20, 0x8D, 0x06, 0x20]),  # PPUADDR = 0
+        bytes([0x8D, 0x05, 0x20, 0x8D, 0x05, 0x20]),  # scroll 0, 0
+        bytes([0x8D, 0x00, 0x20]),                    # PPUCTRL = 0
+        bytes([0xA9, 0x0A, 0x8D, 0x01, 0x20]),        # PPUMASK: background on
+        ("abs", 0x4C, "loop"),
+        ("label", "nmi"),
+        bytes([0x40]),                                # RTI
+    ]
+    return assemble(0xC000, items)
+
+
 def nes(kind):
-    code, labels = program(kind == "sram")
+    code, labels = program_4p() if kind.startswith("4p") else program(kind == "sram")
     prg = bytearray(16384)
     prg[0:len(code)] = code
     for vec, name in ((0x3FFA, "nmi"), (0x3FFC, "reset"), (0x3FFE, "nmi")):
@@ -119,6 +185,7 @@ def nes(kind):
         h[7] = 0x08                                     # NES 2.0
         h[10] = 0x70 if kind == "sram" else 0x00        # 8 KiB PRG-NVRAM (64 << 7)
         h[12] = 1 if kind == "pal" else 0
+        h[15] = {"4p-fs": 2, "4p-fc": 3}.get(kind, 0)   # the default expansion device
     return bytes(h + prg + chr_)
 
 

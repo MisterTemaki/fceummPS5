@@ -43,6 +43,10 @@ extern const Choice kRamStates[]; // fceumm_ramstate
 extern const int kRamStateCount;
 extern const Choice kTurboSpeeds[]; // fceumm_turbo_delay
 extern const int kTurboSpeedCount;
+// The 4-player adapter (Settings, CONTROLS): Auto (the one the game is made for: FCEUmm's lists, Mesen's database, an
+// NES 2.0 header), off, the NES Four Score, the Famicom's 4-player adapter. Players 3 and 4 are on it.
+extern const Choice kFourPlayers[];
+extern const int kFourPlayerCount;
 
 // The buttons of the console's pad the player can move, and the PS5 buttons they can go to.
 struct PadButton
@@ -81,6 +85,11 @@ void InsertCoin();
 
 // Settings from fe::Config() -> the core's options and the frontend's picture/sound settings.
 void ApplySettings();
+
+// What the 4-player adapter's Auto found for the running game: 0 none (two players), 1 the NES Four Score, 2 the
+// Famicom's adapter (fe::FourPlayer); -1 when no game runs. Its name for the settings row: "2 players"...
+int FourPlayerAuto();
+const char* FourPlayerName(int adapter);
 
 enum class FrameResult
 {
