@@ -18,6 +18,7 @@
 #include "ProsperoCrash.h"
 #include "ProsperoInput.h"
 #include "ProsperoJailbreak.h"
+#include "ProsperoUpdate.h"
 #include "ProsperoNotify.h"
 #include "ProsperoSce.h"
 #include "ProsperoVideo.h"
@@ -31,10 +32,13 @@
 #include "fe_shelf.h"
 #include "netfs.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <pthread.h>
+#include <stdexcept>
 #include <string>
 #include <unistd.h>
 
@@ -142,6 +146,32 @@ bool PlayGame(const std::string& rom, bool from_command_line)
 	}
 }
 
+// Once a day the helper looks for a newer release on GitHub (ProsperoUpdate.h); when there is one, it says so in a
+// notification (Settings, SYSTEM, Updates installs it). <root>/update-check.txt holds the time of the last look.
+void AutoCheckUpdates()
+{
+	const std::string stamp = OrbisRoot() + "/update-check.txt";
+	long long last = 0;
+	if (FILE* f = fopen(stamp.c_str(), "r"))
+	{
+		if (fscanf(f, "%lld", &last) != 1)
+			last = 0;
+		fclose(f);
+	}
+	const long long now = (long long)time(nullptr);
+	if (now - last < 24 * 3600 && now >= last)
+		return;
+	std::string reply;
+	if (!jailbreak::UpdateRequest("autocheck", reply))
+		return; // no helper of ours: nothing to ask
+	OrbisLog("[update] daily check asked of the helper: %s", reply.c_str());
+	if (FILE* f = fopen(stamp.c_str(), "w"))
+	{
+		fprintf(f, "%lld\n", now);
+		fclose(f);
+	}
+}
+
 // The end of the app: through the system, then _exit() if it never comes (PS5SX2's OrbisExitApp: on the
 // console a title's exit() or return from main ends in SIGSYS).
 [[noreturn]] void ExitApp(int status)
@@ -165,6 +195,69 @@ struct Args
 	int status;
 };
 
+// 1.2 (FBNeo PS5 2.2's and Snes9x PS5 2.10's, as Stella PS5 1.0.1 / 1.0.2): C++ exceptions checked at the start, with
+// the debug logs on: one throw from our code, one from inside libc++ (std::stoi) and a failed allocation's
+// std::bad_alloc, each caught by type. Up to 1.1 the eboot took the personality routine and the type_info vtables from
+// the system's libSceLibcInternal next to its own static __cxa_throw and unwinder (Stella PS5 1.0 crashed at its first
+// throw with that mix), and operator new stopped the app with SIGILL. boot.log says "exceptions: ok" when they work; a
+// crash here names this stage.
+__attribute__((noinline)) int ThrowForSelfTest(int v)
+{
+	if (v > 0)
+		throw std::runtime_error("self-test");
+	return v;
+}
+
+void ExceptionSelfTest()
+{
+	if (!OrbisLogEnabled())
+		return;
+	FCEUMM_STAGE(Boot, "exceptions self-test");
+	OrbisLog("[boot] exceptions: self-test (a throw and its catch)");
+	OrbisLogSync();
+	volatile int one = 1;
+	bool ours = false, libcxx = false;
+	try
+	{
+		ThrowForSelfTest(one);
+	}
+	catch (const std::runtime_error& e)
+	{
+		ours = strcmp(e.what(), "self-test") == 0;
+	}
+	try
+	{
+		volatile int n = std::stoi(std::string(one ? "not a number" : "1"));
+		(void)n;
+	}
+	catch (const std::invalid_argument&)
+	{
+		libcxx = true;
+	}
+	// The console's build only: the host's operator new is the system's, and its sanitizer stops at a request this big.
+	bool oom = true;
+	const char* oom_how = "not tried on the host";
+#ifdef __PROSPERO__
+	oom = false;
+	oom_how = "missed";
+	try
+	{
+		// over PTRDIFF_MAX: the allocator refuses it itself, without asking the kernel for anything
+		volatile size_t huge = SIZE_MAX / 2 + 1;
+		void* p = ::operator new(huge);
+		::operator delete(p);
+	}
+	catch (const std::bad_alloc&)
+	{
+		oom = true;
+		oom_how = "caught";
+	}
+#endif
+	OrbisLog("[boot] exceptions: %s (our throw %s, libc++'s std::invalid_argument %s, operator new's std::bad_alloc %s)",
+		ours && libcxx && oom ? "ok" : "NOT OK", ours ? "caught" : "missed", libcxx ? "caught" : "missed", oom_how);
+	OrbisLogSync();
+}
+
 int Run(int argc, char** argv)
 {
 	setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -184,6 +277,7 @@ int Run(int argc, char** argv)
 	OrbisLog("[boot] jailbreak: %s", freed ? how.c_str() : "nobody answered");
 	const bool have_data = OrbisPathsInit();
 	OrbisLogOpen(); // also writes the lines above
+	ExceptionSelfTest();
 	fe::SavePrefetched(prefetch);
 	fe::RememberPrefetch(prefetch);
 	// the shelf downloads nothing after the jailbreak (PS5SX2's download_usb_only); without one (the host
@@ -192,7 +286,10 @@ int Run(int argc, char** argv)
 	if (!have_data)
 		OrbisLog("[boot] can't create %s: no access to /data", OrbisRoot().c_str());
 	else
+	{
 		WritePid();
+		AutoCheckUpdates();
+	}
 	fe::Config().Load();
 
 	if (have_data)

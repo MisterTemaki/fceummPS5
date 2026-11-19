@@ -116,6 +116,8 @@ namespace
 constexpr int kConnectTimeoutMs = 10000;
 constexpr int kIoTimeoutSeconds = 15;
 constexpr size_t kMaxHeaderBytes = 64 * 1024;
+// Get's answer for a redirect from HTTPS to plain HTTP, which isn't followed (1.2, see Get)
+constexpr int kRefusedRedirect = -4;
 
 double Now()
 {
@@ -226,6 +228,7 @@ struct TlsHttp::Impl
 	mbedtls_x509_crt ca;
 	mbedtls_ssl_config conf;
 
+	std::atomic<size_t>* progress = nullptr;
 	// the network state, asked again after Term
 	bool net_tried = false, net_ok = false;
 	int pool = -1;
@@ -639,7 +642,11 @@ struct TlsHttp::Impl
 				return false;
 			const size_t take = std::min(n, inbuf.size() - inpos);
 			if (out)
+			{
 				out->insert(out->end(), inbuf.begin() + long(inpos), inbuf.begin() + long(inpos + take));
+				if (progress)
+					progress->store(out->size(), std::memory_order_relaxed);
+			}
 			inpos += take;
 			n -= take;
 		}
@@ -743,7 +750,10 @@ struct TlsHttp::Impl
 					}
 					break;
 				}
-				if (got + n > limit)
+				// 1.2 (Snes9x PS5 2.10, as Stella PS5 1.0.2): n against what is left, not got + n against the limit: a chunk size near
+				// 2^64 wrapped that sum round to a small number, and the body was read past the limit for as long as
+				// the server sent it (got <= limit here)
+				if (n > limit - got)
 				{
 					Close();
 					return status == 200 ? -2 : status;
@@ -804,6 +814,11 @@ bool TlsHttp::Offline() const
 	return m->net_tried && !m->net_ok;
 }
 
+void TlsHttp::SetProgress(std::atomic<size_t>* bytes)
+{
+	m->progress = bytes;
+}
+
 void TlsHttp::Term()
 {
 	m->Close();
@@ -857,6 +872,15 @@ int TlsHttp::Get(const std::string& start_url, std::vector<uint8_t>& out, size_t
 			{
 				url = Resolve(u, location);
 				out.clear();
+				// 1.2 (Snes9x PS5 2.10, as Stella PS5 1.0.2): never from HTTPS down to plain HTTP. The updater's trust rests on the TLS
+				// of GitHub's answer (the zip's SHA-256 comes in it); a redirect to http:// would hand what follows to
+				// anyone on the way. An address that starts in http:// (the host tests' servers) is left as it is.
+				if (u.tls && url.compare(0, 7, "http://") == 0)
+				{
+					OrbisLog("[https] %s redirects to %s, from HTTPS to plain HTTP: not followed", start_url.c_str(), url.c_str());
+					status = kRefusedRedirect;
+					break;
+				}
 				continue;
 			}
 			break;

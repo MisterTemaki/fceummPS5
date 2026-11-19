@@ -10,6 +10,8 @@
 #include "ProsperoInstall.h"
 
 #include "OrbisPaths.h"
+#include "ProsperoAppPlace.h"
+#include "ProsperoUpdate.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -85,10 +87,47 @@ bool WriteAtomically(const std::string& path, const unsigned char* data, size_t 
 }
 } // namespace
 
+const AppPlace& AppInstallPlace()
+{
+	static const AppPlace place = [] {
+		const char* env = getenv("FCEUMM_PS5_HOMEBREW");
+		const AppPlace p = FindAppPlace(FCEUMM_TITLE_ID, std::string(env && *env ? env : "/data/homebrew") + "/" FCEUMM_TITLE_ID);
+		OrbisLog("[install] %s", p.log.c_str());
+		return p;
+	}();
+	return place;
+}
+
 std::string AppInstallDir()
 {
-	const char* env = getenv("FCEUMM_PS5_HOMEBREW");
-	return std::string(env && *env ? env : "/data/homebrew") + "/" FCEUMM_TITLE_ID;
+	return AppInstallPlace().dir;
+}
+
+namespace
+{
+std::string ContentVersion(const std::string& param)
+{
+	const size_t k = param.find("\"contentVersion\"");
+	if (k == std::string::npos)
+		return "";
+	const size_t a = param.find('"', param.find(':', k) + 1);
+	const size_t b = a == std::string::npos ? a : param.find('"', a + 1);
+	return b == std::string::npos ? "" : param.substr(a + 1, b - a - 1);
+}
+} // namespace
+
+std::string InstalledVersion()
+{
+	// the app the console runs: through the mount when there is one, else its folder
+	const AppPlace& place = AppInstallPlace();
+	const std::string dir = !place.mount.empty() ? place.mount : place.source;
+	FILE* f = fopen((dir + "/sce_sys/param.json").c_str(), "rb");
+	if (!f)
+		return "";
+	std::string s(65536, '\0');
+	s.resize(fread(&s[0], 1, s.size(), f));
+	fclose(f);
+	return ContentVersion(s);
 }
 
 InstallResult InstallApp()
@@ -97,7 +136,58 @@ InstallResult InstallApp()
 	if (!files)
 		return InstallResult::NothingEmbedded;
 
+	const AppPlace& place = AppInstallPlace();
+	if (!place.writable && place.image_pending)
+	{
+		// autoloaded before ShadowMount+ has mounted the image the app runs from: nothing to write, nothing to say
+		OrbisLog("[install] %s: left to the image", place.log.c_str());
+		return InstallResult::UpToDate;
+	}
+	if (!place.writable)
+	{
+		// an autoloaded payload and an image (or a read-only folder) already holding this version or a newer one:
+		// nothing to say at every start; only a newer payload is something the user can't put there
+		std::string mine;
+		for (const EmbeddedAppFile* f = files; f->rel; f++)
+			if (strcmp(f->rel, "sce_sys/param.json") == 0)
+				mine = ContentVersion(std::string(reinterpret_cast<const char*>(f->begin), size_t(f->end - f->begin)));
+		const std::string there = place.unsure ? "" : InstalledVersion();
+		if (!mine.empty() && !there.empty())
+		{
+			const int c = update::CompareVersions(there, mine);
+			if (c > 0)
+			{
+				OrbisLog("[install] %s holds version %s, newer than this payload's %s: left as it is (%s)",
+					place.source.c_str(), there.c_str(), mine.c_str(), place.log.c_str());
+				return InstallResult::NewerInstalled;
+			}
+			if (c == 0)
+			{
+				OrbisLog("[install] %s holds this version (%s): nothing to write (%s)", place.source.c_str(),
+					there.c_str(), place.log.c_str());
+				return InstallResult::UpToDate;
+			}
+		}
+		OrbisLog("[install] not installed: %s", place.reason.c_str());
+		return InstallResult::CantWrite;
+	}
+	if (!place.mount.empty())
+		OrbisLog("[install] the console runs the app from %s: that copy is the one brought up to date (through %s)",
+			place.source.c_str(), place.dir.c_str());
 	const std::string dir = AppInstallDir();
+	// a newer version installed (by the app's own update): this older payload doesn't put itself over it
+	for (const EmbeddedAppFile* f = files; f->rel; f++)
+		if (strcmp(f->rel, "sce_sys/param.json") == 0)
+		{
+			const std::string mine = ContentVersion(std::string(reinterpret_cast<const char*>(f->begin), size_t(f->end - f->begin)));
+			const std::string there = InstalledVersion();
+			if (!mine.empty() && !there.empty() && update::CompareVersions(there, mine) > 0)
+			{
+				OrbisLog("[install] %s holds version %s, newer than this payload's %s: left as it is", dir.c_str(),
+					there.c_str(), mine.c_str());
+				return InstallResult::NewerInstalled;
+			}
+		}
 	const bool existed = OrbisIsFile(dir + "/eboot.bin");
 	if (!OrbisMkdirs(dir + "/sce_sys"))
 	{

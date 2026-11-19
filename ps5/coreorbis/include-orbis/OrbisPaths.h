@@ -47,5 +47,8 @@ void OrbisLogSetEnabled(bool on);
 // Reads the setting again and applies it (the helper, which keeps running, calls this for each request).
 void OrbisLogRefresh();
 bool OrbisLogEnabled();
+// boot.log onto the disk now (fflush + fsync): before a step that might take the process down (the exceptions
+// self-test), so the last line written says where it was (1.2)
+void OrbisLogSync();
 // The open log's file descriptor, for the crash handler's signal-safe write(); -1 before it is open.
 int OrbisLogFd();

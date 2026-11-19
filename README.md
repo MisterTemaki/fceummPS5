@@ -30,13 +30,13 @@ one is [README-FCEUmm.md](README-FCEUmm.md)). The core (`src/`: the CPU, PPU, AP
 libretro port (`src/drivers/libretro/libretro.c`) are compiled as they are. The frontend drives the core through its
 libretro interface and plays the part RetroArch plays on a PC.
 
-> **Status (1.1):** builds with the ps5-payload-dev SDK into a signed native app, and passes 394 host tests,
+> **Status (1.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes @TESTS@ host tests,
 > which run the same code (the FCEUmm core included) on Linux with the PS5 calls simulated: a hand-assembled NES test
 > program is played through the whole chain -- the shelf, the pad, the core, the video and sound output -- as an
 > NES 2.0, iNES 1.0 and UNIF file, in NTSC and PAL, from a zip and a `.7z` and as a Disk System image; games are
 > played from a network share standing in for a NAS. netfs's own 235 checks, the NFS backend's 36 tests and the 7z
-> reader's 43 checks pass too. It has not yet been run on a console (nor have network shares or `.7z` archives). If something
-> fails, the logs in `/data/fceumm/logs/` say where.
+> reader's 43 checks pass too. It has not yet been run on a console (nor have network shares, `.7z` archives, four
+> players or the updates from the app). If something fails, the logs in `/data/fceumm/logs/` say where.
 
 ## What it takes from Mesen and Nestopia
 
@@ -56,6 +56,9 @@ what of them could be added without replacing the core, is:
   (Original Hardware, PVM Style, Unsaturated v6), Nestopia's palette files (Nostalgia, Hybrid, NTSC), and FCEUmm's
   own twenty (FCEUX, Nintendo RGB PPU, Sony CXA2025AS, NESCAP, Wavebeam, the other FirebrandX palettes, Wii VC...).
 - **HD packs** in Mesen's format (`hires.txt`), drawn by the core: see [HD packs](#hd-packs).
+- **Four-player games (1.2).** Mesen's database also says which cartridges are made for the NES Four Score or the
+  Famicom's 4-player adapter. With the 4-player adapter on **Auto**, 109 games FCEUmm's own lists don't have get
+  theirs (see [Four players](#four-players)).
 
 ## How it works
 
@@ -85,9 +88,10 @@ sits next to Snes9x PS5 (PPSA99009, helper port 9083), Mesen2 PS5 (PPSA99010, po
 
 ## Versions
 
-Every release carries its version in the file name: `NESFCEUmmPS5-v1.1.elf` and `fceumm-ps5-v1.1-src.zip`
-(`make dist`). When updating, replace the old ELF with the new one in your autoload or Payload Manager. In this
-README, "`NESFCEUmmPS5.elf`" always means the current release's ELF.
+Every release carries its version in the file name: `NESFCEUmmPS5-v1.2.elf`, `NESFCEUmmPS5-v1.2-PPSA99013.zip` (the
+app's own updates) and `fceumm-ps5-v1.2-src.zip` (`make dist`). From 1.2 on the app updates itself (Settings,
+SYSTEM, Updates: see [Updates](#updates)); when updating with the ELF, replace the old one with the new one in your
+autoload or Payload Manager. In this README, "`NESFCEUmmPS5.elf`" always means the current release's ELF.
 
 **1.0:** the first release, with what the other ports learned built in: covers downloaded in the background by the
 helper with its own HTTPS (Mbed TLS), CRT shaders, saves per system, the debug logs setting.
@@ -113,6 +117,53 @@ not released on their own.
 - The new screens in the five languages. libsmb2 and libnfs (LGPL-2.1-or-later) are built in, as Beetle PCE PS5,
   Genesis Plus GX PS5 and Snes9x PS5 carry them; the 7z decoder is the LZMA SDK's (public domain).
 
+**1.2:** four players and updates from the app, as Genesis Plus GX PS5 has them (thanks to BombaaMaan for asking,
+[issue #2](https://github.com/MisterTemaki/fceummPS5/issues/2)).
+- **4-player adapter** (Settings, CONTROLS): **Auto** (the default), **Off (2 players)**, **NES Four Score** or the
+  **Famicom 4-player adapter**. Players 3 and 4 are the third and fourth signed-in users' controllers. Auto knows 168
+  games: FCEUmm's own 59 and 109 more from Mesen's game database (Nintendo World Cup (USA) (Rev 1), Monopoly, Danny
+  Sullivan's Indy Heat, Nekketsu Koukou Dodgeball-bu (VC), homebrew such as Super Homebrew War...), and reads an NES
+  2.0 header's expansion device. Over a game the row says what Auto chose. See [Four players](#four-players).
+- A game in FCEUmm's Famicom list had the Four Score on beside the Famicom adapter; now only the adapter is in.
+- **Updates from the app** (Settings, SYSTEM, Updates), from this repository's GitHub releases, with a check once a
+  day: the helper downloads the app's zip, checks it and every file in it, then installs it. It writes the folder
+  the console runs the app from, also when ShadowMount+ runs it from a USB or extended drive (FBNeo PS5 2.2's and
+  Snes9x PS5 2.11's version of the updater). See [Updates](#updates).
+- The helper's HTTPS (covers, updates): Mbed TLS's threading layer (the covers and the updates run side by side),
+  a chunk size near 2^64 no longer wraps the download limit, no redirect from HTTPS down to plain HTTP.
+- The build: a new version rebuilds every file that carries it (`build/defs.stamp`).
+
+## Updates
+
+From 1.2 on, the app updates itself from this repository's GitHub releases, as Genesis Plus GX PS5 and FBNeo PS5 do
+(after [Porpoise](https://github.com/elripalda/Porpoise-Dolphin-Emulator-for-PS5)):
+
+- **Settings, SYSTEM, Updates** shows the version you have and what to do: *Check now*, *Install 1.3 (20 MB)*, the
+  download and install progress, then *Installed: restart* (Cross opens the new version).
+- Once a day, when the app starts, it checks by itself; when a newer version is out, a notification says so.
+  Nothing is installed without you choosing *Install*.
+- The helper does the work (the app's own HTTPS doesn't work once it is out of its sandbox), with its own HTTPS
+  (Mbed TLS, certificates checked). It asks `api.github.com/repos/MisterTemaki/fceummPS5/releases/latest` for the
+  newest release and takes its asset `NESFCEUmmPS5-v<version>-PPSA99013.zip`.
+- The zip is checked before anything is written: its size and SHA-256 against what GitHub gives, then every file
+  against the zip's own list (`PPSA99013/manifest.sha256`). Each file is written beside the old one, then all are put
+  in place with `eboot.bin` last; files the new version no longer has are removed, and the home screen's copy of the
+  art is refreshed. If anything fails before that, nothing has changed. No copy of the old version is kept.
+- Only the app's folder changes: `/data/homebrew/PPSA99013/`, or the folder ShadowMount+ runs the app from when it
+  mounted another one on `/system_ex/app/PPSA99013` (a USB or extended drive's `homebrew/PPSA99013`, a folder of its
+  scan paths): the update is written there, through the mount, so the copy the console runs is the one updated. An
+  app run from an image ShadowMount+ mounted (`.ffpkg`, `.exfat`...) or from a read-only folder can't be updated in
+  place: Settings, Updates says so (update the image or the folder by hand). When the place can't be told for sure
+  (no mount table, a mount that isn't ShadowMount+'s), the update goes to `/data/homebrew/PPSA99013/`. The installer
+  payload follows the same rules. Games, saves and settings (`/data/fceumm/`) aren't touched.
+- **Your autoload:** the app updated this way is newer than the ELF in your autoload. The older ELF sees that and
+  leaves the app alone (its notification says so), and its helper still serves the newer app. Put the new ELF in
+  your autoload when you can: a new version may come with a new helper.
+- **From 1.1:** 1.1 has no updater, so 1.2 is installed with its ELF; the versions after it come through the app.
+
+For a release, `make dist` builds the zip (`build/dist/NESFCEUmmPS5-v<version>-PPSA99013.zip`, the app folder stored
+without compression, with its manifest). Attach it to the GitHub release, tagged `v<version>`, next to the ELF.
+
 ## Language
 
 English (the default), Spanish, Portuguese (Brazil), French or German: Settings -> **SYSTEM** -> **Language**
@@ -130,10 +181,10 @@ it at once; the logs stay in English.
 
 1. **Send `NESFCEUmmPS5.elf`** with PS5 Payload Manager, or from a PC on the same network:
    ```sh
-   nc -q0 PS5_IP 9021 < NESFCEUmmPS5-v1.1.elf
+   nc -q0 PS5_IP 9021 < NESFCEUmmPS5-v1.2.elf
    ```
    It installs the app in `/data/homebrew/PPSA99013/` (`eboot.bin`, `sce_module/libc.prx`, `param.json`, the
-   icon and the backgrounds), shows **"NES FCEUmm PS5 1.1 installed. Open it from the NES FCEUmm PS5 icon on the
+   icon and the backgrounds), shows **"NES FCEUmm PS5 1.2 installed. Open it from the NES FCEUmm PS5 icon on the
    home screen."** and stays running as the helper.
 2. **Open the NES FCEUmm PS5 icon.** The game shelf appears and the controller works.
 3. **Copy your games** to their system's folder, over FTP for example. The app makes the folders on its first
@@ -150,8 +201,8 @@ it at once; the logs stay in English.
 
 Tip: put `NESFCEUmmPS5.elf` in your autoload, as PS5SX2 recommends for its payloads.
 
-**Updating:** send the new `NESFCEUmmPS5.elf` once. It compares every app file with the copy it carries and
-rewrites only what changed; each file is written to a temporary file and then renamed, `eboot.bin` last. A deleted
+**Updating:** from the app (Settings, SYSTEM, Updates: see [Updates](#updates)), or send the new `NESFCEUmmPS5.elf`
+once. It compares every app file with the copy it carries and rewrites only what changed; each file is written to a temporary file and then renamed, `eboot.bin` last. A deleted
 or damaged icon is put back the same way. A second copy sent while the helper is already running only installs and
 exits.
 
@@ -385,9 +436,28 @@ Circle, their turbo versions above them. Every button can be moved (Settings, **
 | hold R2 | fast forward (speed in the settings) |
 | hold L2 + R2 | rewind |
 
-Up to four players: player 2 is the second signed-in user's controller, players 3 and 4 the third and fourth.
-Games made for four players (the Four Score or the Famicom's adapter) get it plugged in by FCEUmm on its own. The
-light bar shows the player.
+Up to four players: player 2 is the second signed-in user's controller, players 3 and 4 the third and fourth (with a
+4-player adapter: see below). The light bar shows the player.
+
+### Four players
+
+Players 3 and 4 play through a **4-player adapter**, as on the real consoles: the **NES Four Score** (or Satellite),
+or the **Famicom's 4-player adapter** (Hori's and the others, plugged into the Famicom's expansion port). Settings,
+CONTROLS, **4-player adapter**:
+
+- **Auto** (the default): the adapter the game is made for, none for the others. It knows 168 games by their ROM's
+  CRC: the 59 of FCEUmm's own lists (Bomberman II, Gauntlet II, R.C. Pro-Am II, Super Spike V'Ball, Nintendo World Cup,
+  the Kunio-kun games...) and 109 more from Mesen's game database. An NES 2.0 header that names the Four Score or the
+  Famicom adapter as its expansion device is followed too. Over a game the row says what Auto chose: "Auto (Four
+  Score)", "Auto (Famicom adapter)", "Auto (2 players)".
+- **Off (2 players)**: no adapter, also for the games of FCEUmm's lists.
+- **NES Four Score** / **Famicom 4-player adapter**: that adapter for every game (a hack, a homebrew or a dump the
+  lists don't know). Most two-player games don't mind an adapter they don't use.
+
+A game started with an adapter says so for a moment ("NES Four Score: players 3 and 4 can join"). The setting
+applies at once, in the game too, and is kept in `fceumm-ps5.ini` (`four_player=0` Auto, `1` Off, `2` Four Score, `3`
+Famicom adapter); it is the same for every game. `boot.log` says which adapter a game got and why (`4-player adapter:
+NES Four Score (Auto: Mesen's database, CRC FF8203D5)`).
 
 ## Settings
 
@@ -407,17 +477,20 @@ Triangle on the shelf, or "Settings" in the pause menu:
   $00, or random -- a few games behave differently on real consoles), **Fix headers** (Mesen's database, On by
   default). The last two apply when a game next starts.
 - **Controls:**
+  - **4-player adapter:** Auto (the game's), Off (2 players), NES Four Score, Famicom 4-player adapter: see
+    [Four players](#four-players).
   - **Turbo speed:** how often Turbo A / Turbo B press their button (30 to 1 presses a second; 15 by default).
   - **Button layout:** for each NES button (A, B, Turbo A, Turbo B, Start, Select) and for the Disk System's side
     and in/out buttons and the VS. System's coin, the PS5 button that presses it: Cross, Circle, Square, Triangle,
     L1, R1, OPTIONS, the touchpad, or none. **Default button layout** puts them back. The layout applies to every
     player (the disk and coin buttons to player 1). L2, R2, L3 and R3 stay for the hot keys and menus, and the
     menus always use Cross / Circle.
-  - Changes apply at once, in the game too, and are saved in `fceumm-ps5.ini` (`turbo`, `btn_a`...`btn_coin`).
+  - Changes apply at once, in the game too, and are saved in `fceumm-ps5.ini` (`four_player`, `turbo`,
+    `btn_a`...`btn_coin`).
 - **Library:** download covers; **Network shares** (see [Network shares](#network-shares-smb-and-nfs); not in the
   settings opened over a game).
 - **System:** **Language** (see [Language](#language)); **Debug logs** (Off by default since 1.0.1) -- see
-  [Debugging](#debugging-logs-and-crashes).
+  [Debugging](#debugging-logs-and-crashes); **Updates** (1.2) -- see [Updates](#updates).
 
 The settings go to the core as its libretro options (`fceumm_*`), so they behave as in RetroArch.
 
@@ -539,9 +612,9 @@ export PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
 cd ps5
 make ps5 -j$(nproc)              # build/ps5/NESFCEUmmPS5.elf (installer + helper, with the app inside)
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
-make dist                        # build/dist/NESFCEUmmPS5-v<version>.elf + the source zip
+make dist                        # build/dist/NESFCEUmmPS5-v<version>.elf, the app's update zip, the source zip
 make app                         # only build/app/PPSA99013/, to copy by hand
-make test                        # Linux builds (app, installer, helper) + 394 host tests (ASan/UBSan), with netfs's,
+make test                        # Linux builds (app, installer, helper) + @TESTS@ host tests (ASan/UBSan), with netfs's,
                                  # the NFS backend's, the tabs' and the 7z reader's unit tests (and the SMB backend's
                                  # against a real Samba, skipped without smbd and pdbedit)
 ```
@@ -562,8 +635,10 @@ The build has three stages:
 3. `NESFCEUmmPS5.elf`, with the app folder built in.
 
 The data built into the app is made by scripts in `ps5/tools/`: `make_gamedb.py` (`data/nointro.tsv`, from
-libretro-database), `make_nesdb.py` (`data/nesdb.tsv`, from Mesen's `MesenNesDB.txt` and FCEUmm's own corrections)
-and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
+libretro-database), `make_nesdb.py` (`data/nesdb.tsv`, from Mesen's `MesenNesDB.txt` and FCEUmm's own corrections),
+`make_nes4p.py` (`data/nes4p.tsv`, the four-player games: FCEUmm's lists in `libretro.c` and `MesenNesDB.txt`) and
+`make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources). `make_release_zip.py` makes the app's
+update zip (`make dist`).
 
 ## Source layout
 
@@ -578,8 +653,11 @@ and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
   - `ProsperoCrt.cpp`: the CRT shaders on the CPU, and their thread pool;
   - `ProsperoAudio.cpp`: `libSceAudioOut`, lock-free ring buffer, output thread;
   - `ProsperoInput.cpp`: `libScePad` + `libSceUserService`, several players, read from any thread;
-  - `ProsperoJailbreak.cpp` / `ProsperoHelper.cpp`: both sides of the sandbox request and the covers list;
-    `helper_data.cpp` builds the helper into the app;
+  - `ProsperoJailbreak.cpp` / `ProsperoHelper.cpp`: both sides of the sandbox request, the covers list and the
+    update requests; `helper_data.cpp` builds the helper into the app;
+  - `ProsperoUpdate.cpp`: the updates from GitHub's releases (the helper's side: check, download, the checks,
+    install); `ProsperoAppPlace.cpp` + `ProsperoPlaceText.h`: the folder the console runs the app from (ShadowMount+'s
+    mount), for the updates and the installer (payloads only);
   - `ProsperoInstall.cpp` + `install_data.cpp`: the app folder built into the installer, the install, and the
     `/user/appmeta` art;
   - `ProsperoCrash.cpp`: the crash printer and stage markers;
@@ -592,8 +670,9 @@ and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
     memory), its video, audio and input callbacks, the pacing, battery saves, save states, rewind, the hot keys,
     turbo, the disk drive and coin buttons, the palettes and the BIOS check;
   - `fe_nes.c`: the few calls into FCEUmm's own API the libretro interface doesn't offer (disk side, coin, the
-    palette, the game's type);
-  - `fe_nesdb.cpp` + `data/nesdb.tsv`: the header corrections from Mesen's database;
+    palette, the game's type, the cartridge's CRC);
+  - `fe_nesdb.cpp` + `data/nesdb.tsv`: the header corrections from Mesen's database; + `data/nes4p.tsv`: the
+    four-player games (FCEUmm's lists and Mesen's database);
   - `fe_palettes.h`: Mesen's and Nestopia's palettes;
   - `fe_games.cpp` + `data/nointro.tsv`: the library, systems, the letter tabs, zips and names;
   - `fe_shelf.cpp`, `fe_covers.cpp`, `fe_prefetch.cpp`, `fe_http.cpp`: the 3D shelf and covers;
@@ -638,7 +717,12 @@ and `make_palettes.py` (`fe_palettes.h`, from Mesen's and Nestopia's sources).
   (a local folder standing in for the NAS: an NES game and a disk started from a share, a power cycle from memory, a
   slow link, read errors, the background CRC pass, the Network shares screen typed with its keyboard, the storage
   tabs, their translations); the `.7z` archives (every method and refusal, a 7z named and covered as its zip twin, a
-  disk in a 7z, a 7z on a share); the no-cover card's NES pad.
+  disk in a 7z, a 7z on a share); the no-cover card's NES pad; four players (a 4-player test program reading each
+  player through the Four Score and the Famicom adapter: every Auto source, the settings, a change over a game; the
+  host signs in up to four users, `FCEUMM_HOST_USERS`); the updates (a local release server: up to date, a newer
+  version, a bad SHA-256, the install, an older payload after it, the daily check, the Settings row) and
+  ShadowMount+'s folder (a USB folder through its mount, an image refused, a mount that isn't its), the helper's
+  HTTP limits.
 
 ## License and credits
 
@@ -651,12 +735,16 @@ binary is distributed with its complete source (`make dist` makes the zip).
   at the root). It includes Blargg's NTSC filter (LGPL-2.1-or-later) and the HD pack renderer for Mesen's format.
 - **Mesen** (Sour and contributors, [github.com/SourMesen/Mesen2](https://github.com/SourMesen/Mesen2), MesenCE
   2.2.1): GPL-3.0. Used here: its game database (`MesenNesDB.txt`, made from NewRisingSun's NES 2.0 header
-  database, NesCartDB and Nestopia's database), reduced to `ps5/frontend/data/nesdb.tsv`; its default palette and
+  database, NesCartDB and Nestopia's database), reduced to `ps5/frontend/data/nesdb.tsv` and, for its four-player
+  games, `ps5/frontend/data/nes4p.tsv`; its default palette and
   palette presets (the FirebrandX ones are FirebrandX's), in `ps5/frontend/fe_palettes.h`; and the HD pack format.
 - **Nestopia** (Martin Freij, R. Belmont, R. Danbrook and contributors): GPL-2.0-or-later. Used here: its palette
   files (Nostalgia by FirebrandX, Hybrid, NTSC), in `ps5/frontend/fe_palettes.h`.
 - **New code in `ps5/`**: MIT (each file says so), shared with Snes9x PS5, Mesen2 PS5, Genesis Plus GX PS5 and FBNeo
   PS5.
+- **The updates from the app** (1.2): Genesis Plus GX PS5's and FBNeo PS5's updater (its ShadowMount+ folder fix from
+  Media Player Classic PS5, Stella PS5 and Snes9x PS5), after [Porpoise](https://github.com/elripalda/Porpoise-Dolphin-Emulator-for-PS5)
+  (elripalda).
 - **The home-screen idea** follows [PS5SX2](https://github.com/Swordpdf/PS5SX2) (Spyros): the PS5 layer's pattern
   (Prospero* shims, kernel toast, `/data` layout, the sandbox request, the cover prefetch and exiting through the
   system).

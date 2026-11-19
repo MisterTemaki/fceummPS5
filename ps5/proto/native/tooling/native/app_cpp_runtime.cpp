@@ -4,7 +4,15 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Bridges standard C++ allocation operators to the clean-room libc module
- * without introducing exceptions, RTTI, or the complete libc++ runtime.
+ * without introducing RTTI.
+ *
+ * NES FCEUmm PS5 1.2 (FBNeo PS5 2.2, Snes9x PS5 2.10, Stella PS5 1.0.2): a failed allocation throws
+ * std::bad_alloc, as the C++ standard says, instead of __builtin_trap()
+ * (SIGILL). The eboot carries the whole C++ runtime since 1.2 (libc++abi,
+ * libunwind; ps5/Makefile), so the exception reaches a catch where the code has
+ * one, and one that nothing catches still ends in std::terminate, which the
+ * crash log reports. This file is built with -fexceptions (ps5/Makefile,
+ * APP_CRT_EH_*).
  */
 
 #include <cstddef>
@@ -34,9 +42,9 @@ namespace
     return posix_memalign(&address, alignment, size == 0 ? 1 : size) == 0 ? address : nullptr;
 }
 
-[[noreturn]] void allocation_failure() noexcept
+[[noreturn]] void allocation_failure()
 {
-    __builtin_trap();
+    throw std::bad_alloc();
 }
 } // namespace
 

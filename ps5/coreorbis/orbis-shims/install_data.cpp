@@ -22,7 +22,14 @@ FCEUMM_INCBIN(fceumm_app_eboot, APP_EBOOT)
 FCEUMM_INCBIN(fceumm_app_param, APP_PARAM)
 FCEUMM_INCBIN(fceumm_app_icon0, APP_ICON0)
 FCEUMM_INCBIN(fceumm_app_pic0, APP_PIC0)
+#ifndef APP_PIC1_IS_PIC0
 FCEUMM_INCBIN(fceumm_app_pic1, APP_PIC1)
+#else
+// the two backgrounds are the same image (the Makefile compared them): built in once (1.2, as Genesis Plus GX PS5 1.7),
+// which keeps the payload well under the 30 MiB the PS5 Payload Manager / the ELF loader take
+#define fceumm_app_pic1_begin fceumm_app_pic0_begin
+#define fceumm_app_pic1_end fceumm_app_pic0_end
+#endif
 FCEUMM_INCBIN(fceumm_app_libc, APP_LIBC)
 
 const EmbeddedAppFile* EmbeddedAppFiles()

@@ -87,6 +87,25 @@ const Entry kTable[] = {
 	{"SYSTEM", "SISTEMA", "SISTEMA", "SYSTÈME", "SYSTEM"},
 	{"Language", "Idioma", "Idioma", "Langue", "Sprache"},
 	{"Debug logs", "Registros de depuración", "Registros de depuração", "Journaux de débogage", "Debug-Protokolle"},
+	{"Updates (this is %s)", "Actualizaciones (esta es la %s)", "Atualizações (esta é a %s)",
+		"Mises à jour (version actuelle %s)", "Updates (diese ist %s)"},
+	{"Needs the helper", "Necesita el helper", "Precisa do helper", "Nécessite le helper", "Braucht den Helper"},
+	{"Checking...", "Comprobando...", "Verificando...", "Vérification...", "Prüfe..."},
+	{"Up to date", "Al día", "Atualizado", "À jour", "Aktuell"},
+	{"Install %s (%.1f MB)", "Instalar %s (%.1f MB)", "Instalar %s (%.1f MB)", "Installer %s (%.1f Mo)",
+		"%s installieren (%.1f MB)"},
+	{"Downloading %d%%", "Descargando %d%%", "Baixando %d%%", "Téléchargement %d%%", "Lade herunter %d%%"},
+	{"Installing %d/%d", "Instalando %d/%d", "Instalando %d/%d", "Installation %d/%d", "Installiere %d/%d"},
+	{"Installed: restart", "Instalada: reinicia", "Instalada: reinicie", "Installée : redémarrez",
+		"Installiert: neu starten"},
+	{"Failed: try again", "Falló: inténtalo de nuevo", "Falhou: tente de novo", "Échec : réessayez",
+		"Fehlgeschlagen: erneut versuchen"},
+	{"Check now", "Comprobar ahora", "Verificar agora", "Vérifier maintenant", "Jetzt prüfen"},
+	{"Updates are downloaded by the helper: send the payload, then open Settings again.",
+		"El helper descarga las actualizaciones: envía el payload y vuelve a abrir Ajustes.",
+		"O helper baixa as atualizações: envie o payload e abra as Configurações de novo.",
+		"Le helper télécharge les mises à jour : envoyez le payload, puis rouvrez les Paramètres.",
+		"Updates lädt der Helper: Payload senden, dann die Einstellungen erneut öffnen."},
 	{"Back", "Volver", "Voltar", "Retour", "Zurück"},
 	{"Settings", "Ajustes", "Configurações", "Paramètres", "Einstellungen"},
 	{"Change", "Cambiar", "Mudar", "Changer", "Ändern"},
@@ -468,6 +487,45 @@ const Entry kTable[] = {
 	{"The archive is damaged, or it is not a 7z archive.", "El archivo está dañado o no es un archivo 7z.",
 		"O arquivo está danificado ou não é um arquivo 7z.", "L'archive est endommagée, ou ce n'est pas une archive 7z.",
 		"Das Archiv ist beschädigt, oder es ist kein 7z-Archiv."},
+	// ---- why an update can't go where ShadowMount+ runs the app (coreorbis/orbis-shims/ProsperoPlaceText.h, 1.2)
+	{"NES FCEUmm PS5 runs from an image ShadowMount+ mounted (%s): an update can't be written into it. Update the image with "
+	 "the new version's folder.",
+		"NES FCEUmm PS5 se ejecuta desde una imagen montada por ShadowMount+ (%s): no se puede escribir una actualización en "
+		"ella. Actualiza la imagen con la carpeta de la nueva versión.",
+		"O NES FCEUmm PS5 roda a partir de uma imagem montada pelo ShadowMount+ (%s): não é possível gravar uma atualização "
+		"nela. Atualize a imagem com a pasta da nova versão.",
+		"NES FCEUmm PS5 tourne depuis une image montée par ShadowMount+ (%s) : impossible d'y écrire une mise à jour. Mettez "
+		"l'image à jour avec le dossier de la nouvelle version.",
+		"NES FCEUmm PS5 läuft aus einem von ShadowMount+ eingebundenen Image (%s): Dort kann kein Update geschrieben werden. "
+		"Aktualisiere das Image mit dem Ordner der neuen Version."},
+	{"NES FCEUmm PS5 runs from %s, which is read-only: an update can't be written there. Update that folder by hand.",
+		"NES FCEUmm PS5 se ejecuta desde %s, que es de solo lectura: no se puede escribir una actualización ahí. Actualiza esa "
+		"carpeta a mano.",
+		"O NES FCEUmm PS5 roda a partir de %s, que é somente leitura: não é possível gravar uma atualização ali. Atualize essa "
+		"pasta manualmente.",
+		"NES FCEUmm PS5 tourne depuis %s, en lecture seule : impossible d'y écrire une mise à jour. Mettez ce dossier à jour à "
+		"la main.",
+		"NES FCEUmm PS5 läuft aus %s, das schreibgeschützt ist: Dort kann kein Update geschrieben werden. Aktualisiere diesen "
+		"Ordner von Hand."},
+	{"NES FCEUmm PS5 runs from %s, where no file can be written: the update can't be installed. Update that folder by hand.",
+		"NES FCEUmm PS5 se ejecuta desde %s, donde no se puede escribir ningún archivo: la actualización no se puede instalar. "
+		"Actualiza esa carpeta a mano.",
+		"O NES FCEUmm PS5 roda a partir de %s, onde nenhum arquivo pode ser gravado: a atualização não pode ser instalada. "
+		"Atualize essa pasta manualmente.",
+		"NES FCEUmm PS5 tourne depuis %s, où aucun fichier ne peut être écrit : la mise à jour ne peut pas être installée. "
+		"Mettez ce dossier à jour à la main.",
+		"NES FCEUmm PS5 läuft aus %s, wo keine Datei geschrieben werden kann: Das Update lässt sich nicht installieren. "
+		"Aktualisiere diesen Ordner von Hand."},
+	{"ShadowMount+ runs NES FCEUmm PS5 from %s, which isn't there now (a drive not connected?). Nothing was written: try "
+	 "again once it is.",
+		"ShadowMount+ ejecuta NES FCEUmm PS5 desde %s, que ahora no está (¿una unidad sin conectar?). No se escribió nada: "
+		"inténtalo de nuevo cuando esté.",
+		"O ShadowMount+ roda o NES FCEUmm PS5 a partir de %s, que não está lá agora (uma unidade desconectada?). Nada foi "
+		"gravado: tente de novo quando estiver.",
+		"ShadowMount+ lance NES FCEUmm PS5 depuis %s, qui n'est pas là pour l'instant (un disque non branché ?). Rien n'a été "
+		"écrit : réessayez quand il le sera.",
+		"ShadowMount+ startet NES FCEUmm PS5 aus %s, das gerade nicht da ist (ein Laufwerk nicht angeschlossen?). Nichts wurde "
+		"geschrieben: Versuche es erneut, sobald es da ist."},
 };
 
 const char* const kLanguageNames[] = {"English", "Español", "Português (Brasil)", "Français", "Deutsch"};

@@ -783,10 +783,11 @@ rc=$(FCEUMM_LOGS_DEFAULT= run "$T" "0:0;$(QUITAT 100)" "90" "$T/root/roms/test.n
 expect "[ $rc = 0 ] && [ ! -e $T/root/logs/boot.log ] && ! grep -q '^\[fceumm-ps5' $T/out.txt" "debug logs off by default: no boot.log"
 expect "grep -q '^debug_logs=0' $T/root/fceumm-ps5.ini" "the default settings file has debug_logs=0"
 nosan "$T"
-# Settings (Triangle) -> Debug logs (Up twice from Shader: Back, then Debug logs) -> Off: that line is the last one
+# Settings (Triangle) -> Debug logs (Up three times from Shader: Back, Updates, then Debug logs) -> Off: that line is the
+# last one
 T=$(newroot t25b)
 $ROM "$T/root/roms/test.nes" >/dev/null
-rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;60:$UP;62:0;70:$CROSS;72:0;90:$CIRCLE;92:0;$(SHELFQUIT_AT 120)" "")
+rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;56:$UP;58:0;64:$UP;66:0;70:$CROSS;72:0;90:$CIRCLE;92:0;$(SHELFQUIT_AT 120)" "")
 expect "[ $rc = 0 ]" "exit code 0 (got $rc)"
 expect "grep -q '^debug_logs=0' $T/root/fceumm-ps5.ini" "Debug logs Off saved"
 expect "tail -1 $T/root/logs/boot.log | grep -q 'debug logs turned off'" "the last line of boot.log says the logs were turned off"
@@ -795,7 +796,7 @@ nosan "$T"
 T=$(newroot t25c)
 $ROM "$T/root/roms/test.nes" >/dev/null
 echo "debug_logs=0" >>"$T/root/fceumm-ps5.ini"
-rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;60:$UP;62:0;70:$CROSS;72:0;90:$CIRCLE;92:0;$(SHELFQUIT_AT 120)" "")
+rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;56:$UP;58:0;64:$UP;66:0;70:$CROSS;72:0;90:$CIRCLE;92:0;$(SHELFQUIT_AT 120)" "")
 expect "grep -q '^debug_logs=1' $T/root/fceumm-ps5.ini" "Debug logs On saved"
 expect "grep -q 'debug logs turned on' $T/root/logs/boot.log && ! grep -q 'NES FCEUmm PS5 1\.[0-9.]*, FCEUmm' $T/root/logs/boot.log" "boot.log starts at the switch (nothing from before it)"
 nosan "$T"
@@ -968,7 +969,7 @@ done
 # the network screens (1.1): Settings, Network shares with a share that does not connect, Add a share, the keyboard on
 # Server (Circle closes it), the share type switched to NFS, Circle asks to discard (Up, Cross: discard), Connect again;
 # back to the shelf: R1 to its Network tab (the share's state), Square scans again, L1 back, quit. Network shares is
-# Up four times from Shader (Back, Debug logs, Language, Network shares).
+# Up five times from Shader (Back, Updates, Debug logs, Language, Network shares).
 for L in 1 2 3 4; do
 	T=$(newroot t28net_$L)
 	echo "language=$L" >>"$T/root/fceumm-ps5.ini"
@@ -976,7 +977,7 @@ for L in 1 2 3 4; do
 	$ROM "$T/root/roms/Alpha (USA).nes" >/dev/null
 	key() { pad="$pad;$f:$1;$((f + 2)):0"; f=$((f + ${2:-6})); } # one press, then the next one $2 flips later
 	pad="0:0;20:$TRIANGLE;22:0"; f=30
-	for i in $(seq 1 4); do key $UP; done
+	for i in $(seq 1 5); do key $UP; done
 	key $CROSS 20; key $DOWN; key $CROSS 20; key $CROSS 20; key $CIRCLE 20
 	key $UP; key $RIGHT 20; key $CIRCLE 20; key $UP; key $CROSS 20
 	key $DOWN; key $CROSS 20; key $CIRCLE 20; key $CIRCLE 30
@@ -1009,9 +1010,9 @@ PY
 	expect "[ $rc = 0 ] && grep -q 'network tab: scan again' $T/root/logs/boot.log && [ -s $T/missing.txt ] && [ ! -s $T/untranslated.txt ]" "language $L: the network screens and the Network tab are translated ($(head -c 200 $T/untranslated.txt | tr '\n' '|'))"
 	nosan "$T"
 done
-# Settings, Language (first row of SYSTEM: Up three times from Shader: Back, Debug logs, Language), Right: Spanish
+# Settings, Language (first row of SYSTEM: Up four times from Shader: Back, Updates, Debug logs, Language), Right: Spanish
 T=$(newroot t28s)
-rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;60:$UP;62:0;70:$UP;72:0;80:$RIGHT;82:0;100:$CIRCLE;102:0;110:$OPTIONS;112:0;120:$CROSS;122:0" "")
+rc=$(run "$T" "0:0;30:$TRIANGLE;32:0;50:$UP;52:0;56:$UP;58:0;62:$UP;64:0;70:$UP;72:0;80:$RIGHT;82:0;100:$CIRCLE;102:0;110:$OPTIONS;112:0;120:$CROSS;122:0" "")
 expect "[ $rc = 0 ] && grep -q '^language=1$' $T/root/fceumm-ps5.ini" "Settings, Language, Right: Español saved"
 # English stays the default: no setting, English on the screen (the texts pass through as they are)
 T=$(newroot t28en)
@@ -1158,8 +1159,8 @@ fi
 
 if want 32; then
 echo "== 32. the Network shares screen: add, change, test and remove a share with the on-screen keyboard (Settings, Network shares)"
-# tests/osk_pad.py turns the steps into a pad script (the keyboard's layout is its model). Settings is Triangle on the shelf; Up four
-# times from Shader reaches Network shares (Back, Debug logs, Language, Network shares). Every run ends: Circle twice,
+# tests/osk_pad.py turns the steps into a pad script (the keyboard's layout is its model). Settings is Triangle on the shelf; Up five
+# times from Shader reaches Network shares (Back, Updates, Debug logs, Language, Network shares). Every run ends: Circle twice,
 # OPTIONS, Cross.
 net_pad() { python3 tests/osk_pad.py 2>/dev/null; }
 net_quit='press CIRCLE 2
@@ -1172,7 +1173,7 @@ mkdir -p "$T/share"
 PAD=$(net_pad <<STEPS
 frame 40
 press TRIANGLE
-press UP 4
+press UP 5
 press CROSS
 press CROSS
 field 10.0.0.5
@@ -1205,7 +1206,7 @@ printf '# my shares\nsmb://old/x   # my note\nnfs://nas/export/nes\n' >"$T/root/
 PAD=$(net_pad <<STEPS
 frame 40
 press TRIANGLE
-press UP 4
+press UP 5
 press CROSS
 press CROSS
 press DOWN 3
@@ -1238,7 +1239,7 @@ T=$(newroot t32c)
 PAD=$(net_pad <<STEPS
 frame 40
 press TRIANGLE
-press UP 4
+press UP 5
 press CROSS
 press CROSS
 press DOWN 10
@@ -1252,12 +1253,12 @@ rc=$(run "$T" "$PAD" "")
 expect "[ $rc = 0 ] && ! grep -q '^smb://\|^nfs://' $T/root/shares.txt" "an empty form is not saved (and Circle on a form with no changes leaves it at once)"
 nosan "$T"
 # d. over a game (Settings from the pause menu) the row is there but can't be chosen (the game may be reading from a share):
-# the pause menu: Down seven times to Settings; there, Up four times from Shader passes Network shares and lands on
+# the pause menu: Down seven times to Settings; there, Up five times from Shader passes Network shares and lands on
 # Download covers, which Cross switches off; Circle, then Down four times to Quit
 T=$(newroot t32d)
 $ROM "$T/root/roms/test.nes" >/dev/null
-rc=$(MAXFLIPS=900 run "$T" "0:0;$(SEQ 100 $L3R3 $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $CROSS $UP $UP $UP $UP $CROSS $CIRCLE $DOWN $DOWN $DOWN $DOWN $CROSS)" "" "$T/root/roms/test.nes")
-expect "[ $rc = 0 ] && grep -q '^covers_download=0' $T/root/fceumm-ps5.ini" "over a game: Network shares is skipped (Up four times reaches Download covers)"
+rc=$(MAXFLIPS=900 run "$T" "0:0;$(SEQ 100 $L3R3 $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $DOWN $CROSS $UP $UP $UP $UP $UP $CROSS $CIRCLE $DOWN $DOWN $DOWN $DOWN $CROSS)" "" "$T/root/roms/test.nes")
+expect "[ $rc = 0 ] && grep -q '^covers_download=0' $T/root/fceumm-ps5.ini" "over a game: Network shares is skipped (Up five times reaches Download covers)"
 nosan "$T"
 fi
 
@@ -1456,6 +1457,279 @@ T=$(newroot t35n)
 $ROM "$T/root/roms/four.nes" 4p-fs >/dev/null
 rc=$(run "$T" "0:0;100:$CROSS;140:0;$(QUITAT 200)" "90,130" "$T/root/roms/four.nes")
 expect "[ $rc = 0 ] && $CHECK $T/dump/flip00090.ppm 960 540 $RED4 >/dev/null && $CHECK $T/dump/flip00130.ppm 960 540 $YELLOW4 >/dev/null" "a Four Score game with one user: player 1 plays, the others read as released"
+nosan "$T"
+fi
+
+# ---------------------------------------------------------------- 1.2 ----------------------------------------------------
+VER=$(sed -n 's/^VERSION ?= //p' Makefile)
+CVER=$(sed -n 's/.*"contentVersion": "\([0-9.]*\)".*/\1/p' app/sce_sys/param.json)
+
+if want 36; then
+echo "== 36. updates from GitHub's releases (Settings, SYSTEM, Updates; Genesis Plus GX PS5's and FBNeo PS5's): the helper checks, downloads, checks every file, installs"
+T=$(newroot t36)
+UPD="python3 tests/update_client.py $FCEUMM_HELPER_PORT"
+stop36() { pkill -f 'build/host/fceumm-ps5-(installer|helper)' 2>/dev/null; pkill -f 'http.server 1[89][0-9][0-9][0-9]' 2>/dev/null; sleep 0.3; }
+waitfor36() { for i in $(seq 1 80); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
+stop36
+SRV=$T/srv; mkdir -p "$SRV" "$T/appmeta/PPSA99013"; echo old >"$T/appmeta/PPSA99013/icon0.png"
+SPORT=$((18000 + RANDOM % 1900))
+(cd "$SRV" && exec python3 -m http.server $SPORT --bind 127.0.0.1 >/dev/null 2>&1) &
+# the release: the installed app with a new eboot, a newer param.json, a new file; the old manifest lists a file that goes
+release36() { # tag contentVersion [bad]
+	rm -rf "$T/rel" && mkdir -p "$T/rel" && cp -r "$T/homebrew/PPSA99013" "$T/rel/PPSA99013" && rm -f "$T/rel/PPSA99013/manifest.sha256" "$T/rel/PPSA99013/sce_sys/old.bin"
+	echo "eboot $1" >"$T/rel/PPSA99013/eboot.bin"; echo "new art" >"$T/rel/PPSA99013/sce_sys/icon0.png"; echo extra >"$T/rel/PPSA99013/sce_sys/extra.bin"
+	sed -i "s/\"contentVersion\": \"[0-9.]*\"/\"contentVersion\": \"$2\"/" "$T/rel/PPSA99013/sce_sys/param.json"
+	python3 tools/make_release_zip.py "$T/rel/PPSA99013" PPSA99013 "$SRV/NESFCEUmmPS5-$1-PPSA99013.zip" >/dev/null
+	local sha size
+	sha=$(sha256sum "$SRV/NESFCEUmmPS5-$1-PPSA99013.zip" | cut -c1-64); size=$(stat -c %s "$SRV/NESFCEUmmPS5-$1-PPSA99013.zip")
+	[ -n "${3:-}" ] && sha=0000${sha:4}
+	printf '{"tag_name":"%s","name":"NES FCEUmm PS5 %s","assets":[{"name":"NESFCEUmmPS5-%s.elf","size":1,"browser_download_url":"http://127.0.0.1:%s/x.elf"},{"name":"NESFCEUmmPS5-%s-PPSA99013.zip","size":%s,"digest":"sha256:%s","browser_download_url":"http://127.0.0.1:%s/NESFCEUmmPS5-%s-PPSA99013.zip"}]}' \
+		"$1" "$1" "$1" $SPORT "$1" $size $sha $SPORT "$1" >"$SRV/latest.json"
+}
+# the app installed by the payload, which then stays as the helper; the updater asks the test server
+FCEUMM_UPDATE_API=http://127.0.0.1:$SPORT/latest.json FCEUMM_PS5_ROOT=$T/root FCEUMM_PS5_HOMEBREW=$T/homebrew FCEUMM_PS5_APPMETA=$T/appmeta \
+	ASAN_OPTIONS=detect_leaks=0 timeout 120 "$INSTALLER" >"$T/inst.txt" 2>&1 &
+expect "waitfor36 $T/root/logs/installer.log 'listening on 127.0.0.1'" "the payload installed $VER and serves as the helper"
+expect "[ \"\$($UPD status $VER | cut -d'|' -f1)\" = idle ]" "the updater answers: idle"
+release36 v$VER $CVER
+expect "$UPD check $VER --until uptodate,failed | grep -q '^uptodate|$VER|'" "the newest release is this version: up to date"
+echo gone >"$T/homebrew/PPSA99013/sce_sys/old.bin"
+printf '%s *sce_sys/old.bin\n' "$(sha256sum <"$T/homebrew/PPSA99013/sce_sys/old.bin" | cut -c1-64)" >"$T/homebrew/PPSA99013/manifest.sha256"
+release36 v9.9 99.000.000 bad
+expect "$UPD check $VER --until available,failed | grep -q '^available|9.9|'" "a newer release (9.9): available, with its size"
+cp "$T/homebrew/PPSA99013/eboot.bin" "$T/eboot.before"
+expect "$UPD install $VER --until done,failed | grep -q \"^failed|.*SHA-256 doesn't match\"" "a download whose SHA-256 isn't GitHub's: refused"
+expect "cmp -s $T/homebrew/PPSA99013/eboot.bin $T/eboot.before && [ -z \"\$(find $T/homebrew -name '*.new')\" ]" "and nothing was changed"
+release36 v9.9 99.000.000
+expect "$UPD check $VER --until available,failed | grep -q '^available|9.9|'" "checked again"
+expect "$UPD install $VER --until done,failed | grep -q '^done|9.9|'" "downloaded, every file checked, installed"
+expect "grep -q 'eboot v9.9' $T/homebrew/PPSA99013/eboot.bin && grep -q '\"contentVersion\": \"99.000.000\"' $T/homebrew/PPSA99013/sce_sys/param.json" "the new eboot.bin and param.json in place"
+expect "[ -f $T/homebrew/PPSA99013/sce_sys/extra.bin ] && [ ! -e $T/homebrew/PPSA99013/sce_sys/old.bin ] && grep -q 'sce_sys/extra.bin' $T/homebrew/PPSA99013/manifest.sha256" "a new file added, one the old manifest had removed, the manifest kept"
+expect "grep -q 'new art' $T/appmeta/PPSA99013/icon0.png && [ -z \"\$(find $T/homebrew -name '*.new' -o -name '*.bak' -o -name '*.old')\" ]" "the home screen's copy of the art refreshed; no .new files left, no backup of the old version kept"
+expect "$UPD status 9.9 | grep -q '^done|'" "the result stays until the app is opened again"
+stop36
+(cd "$SRV" && exec python3 -m http.server $SPORT --bind 127.0.0.1 >/dev/null 2>&1) &
+# the old payload sent again (an autoload): the newer version is left alone
+FCEUMM_UPDATE_API=http://127.0.0.1:$SPORT/latest.json FCEUMM_PS5_ROOT=$T/root FCEUMM_PS5_HOMEBREW=$T/homebrew FCEUMM_PS5_APPMETA=$T/appmeta \
+	ASAN_OPTIONS=detect_leaks=0 timeout 120 "$INSTALLER" >"$T/inst2.txt" 2>&1 &
+expect "waitfor36 $T/inst2.txt 'a newer version is installed'" "an older payload sent again: says a newer version is installed"
+expect "grep -q 'eboot v9.9' $T/homebrew/PPSA99013/eboot.bin && grep -q 'new art' $T/appmeta/PPSA99013/icon0.png" "and leaves the update (and its art) as they are"
+expect "$UPD check 9.9 --until uptodate,available,failed | grep -q '^uptodate|9.9|'" "the app says which version it is: an older helper finds it up to date"
+stop36
+# another title asking: refused (the helper only updates its own app)
+FCEUMM_UPDATE_API=http://127.0.0.1:$SPORT/latest.json FCEUMM_PS5_ROOT=$T/root FCEUMM_PS5_HOMEBREW=$T/homebrew FCEUMM_PS5_APPMETA=$T/appmeta \
+	FCEUMM_HOST_JB_TITLE=PPSA99999 ASAN_OPTIONS=detect_leaks=0 timeout 60 "$HELPER" >"$T/helper-other.txt" 2>&1 &
+waitfor36 $T/root/logs/helper.log 'listening on 127.0.0.1'
+expect "$UPD status $VER | grep -q '^REFUSED not our app'" "another title's process: refused"
+stop36
+# the app: at start the daily check (the helper finds 9.9); Settings (Triangle), Up twice to "Updates" (it shows
+# "Install 9.9"), Cross: the helper installs it
+T2=$(newroot t36b)
+(cd "$SRV" && exec python3 -m http.server $SPORT --bind 127.0.0.1 >/dev/null 2>&1) &
+FCEUMM_UPDATE_API=http://127.0.0.1:$SPORT/latest.json FCEUMM_PS5_ROOT=$T2/root FCEUMM_PS5_HOMEBREW=$T2/homebrew FCEUMM_PS5_APPMETA=$T2/appmeta \
+	ASAN_OPTIONS=detect_leaks=0 timeout 120 "$INSTALLER" >"$T2/inst.txt" 2>&1 &
+waitfor36 $T2/root/logs/installer.log 'listening on 127.0.0.1'
+$ROM "$T2/root/roms/test.nes" >/dev/null
+rc=$(FCEUMM_HOST_REALTIME=1 FCEUMM_PS5_APPMETA=$T2/appmeta run "$T2" "0:0;30:$TRIANGLE;32:0;40:$UP;42:0;46:$UP;48:0;56:$CROSS;58:0;150:$CIRCLE;152:0;$(SHELFQUIT_AT 170)" "54,140")
+expect "grep -q 'daily check asked of the helper' $T2/root/logs/boot.log && [ -f $T2/root/update-check.txt ]" "at start: the daily check asked of the helper"
+expect "grep -q 'update install' $T2/root/logs/installer.log && grep -q 'eboot v9.9' $T2/homebrew/PPSA99013/eboot.bin" "Cross on \"Install 9.9\": the helper installs it"
+expect "grep -q 'is available: Settings, SYSTEM, Updates' $T2/inst.txt $T2/root/logs/installer.log" "the daily check found 9.9: a notification says so"
+nosan "$T2"
+stop36
+# the release zip make dist builds: the app folder stored (no compression), its manifest; every file listed
+Z=$WORK/t36-zip; rm -rf "$Z"; mkdir -p "$Z/PPSA99013/sce_sys"; echo e >"$Z/PPSA99013/eboot.bin"; echo p >"$Z/PPSA99013/sce_sys/param.json"
+python3 tools/make_release_zip.py "$Z/PPSA99013" PPSA99013 "$Z/r.zip" >/dev/null
+expect "python3 -c \"import zipfile,sys; z=zipfile.ZipFile('$Z/r.zip'); n=z.namelist(); sys.exit(0 if all(i.compress_type==0 for i in z.infolist()) and 'PPSA99013/manifest.sha256' in n and 'PPSA99013/eboot.bin' in n and b'*sce_sys/param.json' in z.read('PPSA99013/manifest.sha256') else 1)\"" "make_release_zip.py: the folder stored with its manifest"
+fi
+
+if want 37; then
+echo "== 37. the helper's HTTP limits and ShadowMount+'s folder (FBNeo PS5 2.2's, Snes9x PS5 2.11's): a chunk near 2^64, no HTTPS -> HTTP redirect; updates and the payload go where the console runs the app"
+stop37() { pkill -f 'build/host/fceumm-ps5-(installer|helper)' 2>/dev/null; pkill -f 'http.server 1[89][0-9][0-9][0-9]' 2>/dev/null; sleep 0.3; }
+waitfor37() { for i in $(seq 1 100); do grep -q "$2" "$1" 2>/dev/null && return 0; sleep 0.1; done; return 1; }
+# a. a chunk size near 2^64 is over the limit at once
+stop37
+T=$(newroot t37-chunk)
+mkdir -p "$T/root/covers/NES"
+OPORT=$((18000 + RANDOM % 1900))
+python3 tests/odd_http_server.py $OPORT bigchunk 2>"$T/server.txt" &
+osp=$!
+sleep 0.5
+printf 'NES/Big.png\thttp://127.0.0.1:%s/big.png\n' $OPORT >"$T/root/covers/wanted.txt"
+FCEUMM_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 8 "$HELPER" >"$T/helper.txt" 2>&1
+kill $osp 2>/dev/null; wait $osp 2>/dev/null
+stop37
+H="$T/root/logs/helper.log"
+expect "grep -q 'GET http://127.0.0.1:$OPORT/big.png -> -2,' $H && ! grep -q 'a chunk stopped' $H" "a chunk bigger than the answer may be: refused at once as too big (-2), not read on"
+expect "[ \$(grep -c 'GET /big.png' $T/server.txt) = 1 ]" "... asked once"
+# b. a redirect from HTTPS down to plain HTTP isn't followed
+C=$WORK/t37-certs; rm -rf "$C"; mkdir -p "$C"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$C/ca.key" -out "$C/ca.pem" -days 30 -subj "/CN=FCEUmm Test CA" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout "$C/srv.key" -out "$C/srv.csr" -subj "/CN=localhost" 2>/dev/null
+printf 'subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\n' >"$C/ext.cnf"
+openssl x509 -req -in "$C/srv.csr" -CA "$C/ca.pem" -CAkey "$C/ca.key" -CAcreateserial -out "$C/srv.pem" -days 30 -extfile "$C/ext.cnf" 2>/dev/null
+T=$(newroot t37-down)
+mkdir -p "$T/root/covers/NES"
+HPORT=$((18000 + RANDOM % 1900))
+python3 tests/odd_http_server.py $HPORT bigchunk 2>"$T/plain.txt" &
+p1=$!
+python3 tests/odd_http_server.py $((HPORT + 1)) downgrade "$C/srv.pem" "$C/srv.key" "http://127.0.0.1:$HPORT/big.png" 2>"$T/tls.txt" &
+p2=$!
+sleep 0.6
+printf 'NES/Down.png\thttps://localhost:%s/down.png\n' $((HPORT + 1)) >"$T/root/covers/wanted.txt"
+FCEUMM_EXTRA_CA=$C/ca.pem FCEUMM_PS5_ROOT=$T/root ASAN_OPTIONS=detect_leaks=0 timeout 6 "$HELPER" >"$T/helper.txt" 2>&1
+kill $p1 $p2 2>/dev/null; wait $p1 $p2 2>/dev/null
+stop37
+H="$T/root/logs/helper.log"
+expect "grep -q 'GET /down.png' $T/tls.txt && grep -q 'from HTTPS to plain HTTP: not followed' $H && ! grep -q 'GET' $T/plain.txt" "a redirect from https:// to http://: not followed, the plain server never asked"
+expect "! grep -q 'runtime error\|AddressSanitizer' $T/helper.txt" "no sanitizer reports"
+# c. ShadowMount+: the payload and the helper's updates go to the folder the console runs the app from, never a second
+#    copy in /data/homebrew; an image is said, not written; a place that can't be told for sure: /data/homebrew
+T=$(newroot t37-place)
+M=$T; [ ${#T} -le 56 ] || M=$(mktemp -d /tmp/fce37.XXXXXX)
+SX=$M/sysex; U=$M/usb0/homebrew/PPSA99013
+FCEUMM_PS5_ROOT=$T/root FCEUMM_PS5_HOMEBREW=$T/homebrew FCEUMM_PS5_APPMETA=$T/appmeta ASAN_OPTIONS=detect_leaks=0 timeout 60 "$INSTALLER" >"$T/inst0.txt" 2>&1 &
+waitfor37 $T/root/logs/installer.log 'listening on 127.0.0.1'
+stop37
+rm -rf "${SX:?}" "${M:?}/usb0" && mkdir -p $SX/app $M/usb0/homebrew && cp -r $T/homebrew/PPSA99013 $U
+sums37() { ( cd $1 && find . -type f | sort | xargs sha256sum ); }
+ver37() { sed -i "s/\"contentVersion\": \"[0-9.]*\"/\"contentVersion\": \"$2\"/" $1/sce_sys/param.json; }
+ln -s $U $SX/app/PPSA99013
+MNT="$SX/app/PPSA99013|nullfs|$U|rw;$M/usb0|exfatfs|/dev/da0s1|rw"
+echo "eboot usb old" >$U/eboot.bin; ver37 $U 00.900.000
+env FCEUMM_SYSTEM_EX=$SX FCEUMM_SHADOWMNT=$M/shadowmnt FCEUMM_USER_APP=$M/userapp FCEUMM_PS5_ROOT=$T/root FCEUMM_PS5_HOMEBREW=$M/hb2 \
+	FCEUMM_PS5_APPMETA=$T/appmeta FCEUMM_HOST_MOUNTS="$MNT" ASAN_OPTIONS=detect_leaks=0 timeout 60 "$INSTALLER" >"$T/inst1.txt" 2>&1 &
+waitfor37 $T/inst1.txt 'listening on 127.0.0.1'
+stop37
+expect "grep -q \"updated to $VER (in $U, the copy ShadowMount+ runs)\" $T/inst1.txt && ! grep -q 'eboot usb old' $U/eboot.bin && grep -q '\"contentVersion\": \"$CVER\"' $U/sce_sys/param.json && [ ! -e $M/hb2 ]" "the payload: the copy ShadowMount+ runs (a USB folder) updated through the mount, no second copy"
+SRV=$T/srv; mkdir -p $SRV
+SPORT=$((18000 + RANDOM % 1900))
+(cd "$SRV" && exec python3 -m http.server $SPORT --bind 127.0.0.1 >/dev/null 2>&1) &
+rel37() { # tag contentVersion: a release of the USB copy with that tag, served as the newest
+	rm -rf "${T:?}/rel" && mkdir -p $T/rel && cp -r $U $T/rel/PPSA99013 && rm -f $T/rel/PPSA99013/manifest.sha256
+	echo "eboot $1" >$T/rel/PPSA99013/eboot.bin; ver37 $T/rel/PPSA99013 $2
+	python3 tools/make_release_zip.py $T/rel/PPSA99013 PPSA99013 $SRV/NESFCEUmmPS5-$1-PPSA99013.zip >/dev/null
+	local sha size
+	sha=$(sha256sum $SRV/NESFCEUmmPS5-$1-PPSA99013.zip | cut -c1-64); size=$(stat -c %s $SRV/NESFCEUmmPS5-$1-PPSA99013.zip)
+	printf '{"tag_name":"%s","assets":[{"name":"NESFCEUmmPS5-%s-PPSA99013.zip","size":%s,"digest":"sha256:%s","browser_download_url":"http://127.0.0.1:%s/NESFCEUmmPS5-%s-PPSA99013.zip"}]}' $1 $1 $size $sha $SPORT $1 >$SRV/latest.json
+}
+rel37 v9.9 99.000.000
+sums37 $T/homebrew/PPSA99013 >$T/home.sums
+UPD="python3 tests/update_client.py $FCEUMM_HELPER_PORT"
+helper37() {
+	rm -f $T/root/logs/helper.log
+	env FCEUMM_UPDATE_API=http://127.0.0.1:$SPORT/latest.json FCEUMM_SYSTEM_EX=$SX FCEUMM_SHADOWMNT=$M/shadowmnt FCEUMM_USER_APP=$M/userapp FCEUMM_PS5_ROOT=$T/root FCEUMM_PS5_HOMEBREW=$T/homebrew FCEUMM_PS5_APPMETA=$T/appmeta "$@" ASAN_OPTIONS=detect_leaks=0 timeout 120 "$HELPER" >"$T/helper.txt" 2>&1 &
+	sleep 0.3
+	waitfor37 $T/root/logs/helper.log 'listening on 127.0.0.1'
+}
+helper37 FCEUMM_HOST_MOUNTS="$MNT"
+expect "$UPD check $VER --until available,failed | grep -q '^available|9.9|' && $UPD install $VER --until done,failed | grep -q '^done|9.9|'" "the helper: 9.9 found, installed"
+expect "grep -q \"$SX/app/PPSA99013 is a nullfs mount of $U (on $M/usb0, exfatfs, from /dev/da0s1): files go through $SX/app/PPSA99013\" $T/root/logs/helper.log" "the app runs from a USB drive's folder (a nullfs mount): found, written through the mount"
+expect "grep -q 'eboot v9.9' $U/eboot.bin && grep -q '\"contentVersion\": \"99.000.000\"' $U/sce_sys/param.json" "... the update is in that folder"
+expect "sums37 $T/homebrew/PPSA99013 | cmp -s - $T/home.sums" "... /data/homebrew's copy untouched (no second copy written)"
+pkill -f 'build/host/fceumm-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
+I=$M/shadowmnt/img1/PPSA99013
+rm -rf "${M:?}/shadowmnt" "${SX:?}/app/PPSA99013" && mkdir -p $M/shadowmnt/img1 && cp -r $U $I && ln -s $I $SX/app/PPSA99013
+sums37 $I >$T/img.sums
+helper37 FCEUMM_HOST_MOUNTS="$SX/app/PPSA99013|nullfs|$I|rw;$M/shadowmnt/img1|ufs|/dev/lvd2|ro"
+rel37 v9.10 99.100.000
+expect "$UPD check 9.9 --until available,failed | grep -q '^available|9.10|' && $UPD install 9.9 --until done,failed | grep -q '^failed|.*image ShadowMount+ mounted'" "an image ShadowMount+ mounted can't take the update: refused, saying why"
+expect "sums37 $I | cmp -s - $T/img.sums && [ -z \"\$(find $M -name '*.new')\" ]" "... nothing written into it"
+pkill -f 'build/host/fceumm-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
+# a mount that can't be read as ShadowMount+'s (not nullfs): /data/homebrew, as the payload always wrote
+rm -f "${SX:?}/app/PPSA99013"; mkdir -p $SX/app/PPSA99013
+helper37 FCEUMM_HOST_MOUNTS="$SX/app/PPSA99013|tmpfs|tmpfs|rw"
+rel37 v9.11 99.110.000
+expect "$UPD check 9.10 --until available,failed | grep -q '^available|9.11|' && $UPD install 9.10 --until done,failed | grep -q '^done|9.11|' && grep -q 'eboot v9.11' $T/homebrew/PPSA99013/eboot.bin" "a mount that isn't ShadowMount+'s: /data/homebrew/PPSA99013"
+pkill -f 'build/host/fceumm-ps5-(installer|helper)' 2>/dev/null; sleep 0.3
+pkill -f "http.server $SPORT" 2>/dev/null
+[ "$M" != "$T" ] && rm -rf "${M:?}"
+# d. the version: 1.2, contentVersion 01.020.000
+expect "[ '$VER' = 1.2 ] && [ '$CVER' = 01.020.000 ]" "version 1.2, contentVersion 01.020.000"
+fi
+
+if want 38; then
+echo "== 38. lesson 2 (Snes9x PS5 2.10's, FBNeo PS5 2.2's): the eboot's imports and its own C++ runtime, raw system calls, std::bad_alloc, the exceptions self-test, the version stamp"
+SDKLIB=${PS5_PAYLOAD_SDK:-/opt/ps5-payload-sdk}/target/lib
+# a. the PIE of the last make ps5: the eleven modules, no C++ runtime import, its own personality routine
+if [ -f build/app/fceumm-pie.elf ] && [ -d "$SDKLIB" ]; then
+	python3 tools/check_imports.py build/app/fceumm-pie.elf "$SDKLIB" >"$WORK/imports.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 0 ] && grep -q '^check_imports: ok' $WORK/imports.txt && ! grep -q 'libkernel_sys\|libkernel_web' $WORK/imports.txt" "the app's PIE: only the eleven modules, every import in one of them, no C++ runtime import"
+	if command -v llvm-dwarfdump-18 >/dev/null && command -v llvm-readelf-18 >/dev/null; then
+		P=build/app/fceumm-pie.elf
+		pers=$(llvm-readelf-18 -sW $P | awk '$NF=="__gxx_personality_v0" && $2 != "0000000000000000" {print $2}' | sed 's/^0*//' | head -1)
+		slots=$(llvm-dwarfdump-18 --eh-frame $P 2>/dev/null | awk '/Personality Address/ {print $3}' | sed 's/^0*//' | sort -u)
+		ok38=1
+		[ -n "$pers" ] && [ -n "$slots" ] || ok38=0
+		for s in $slots; do llvm-readelf-18 -rW $P | grep -qi "^0*$s .*R_X86_64_RELATIVE *0*$pers\$" || ok38=0; done
+		expect "[ $ok38 = 1 ]" "the eboot's exceptions: its own __gxx_personality_v0 (0x$pers), every CIE's personality slot ($(echo $slots | tr ' ' ,)) relocated to it"
+		expect "llvm-readelf-18 -sW $P | awk '\$NF==\"_Znwm\" && \$5==\"LOCAL\"' | grep -q . && llvm-readelf-18 -sW $P | awk '\$NF==\"__cxa_throw\" && \$5==\"LOCAL\"' | grep -q ." "operator new and __cxa_throw are the eboot's own"
+	fi
+	if [ -f build/app/fceumm-pie.trace ]; then
+		python3 tools/check_syscalls.py check build/app/fceumm-pie.trace >"$WORK/pie-sys.txt" 2>&1
+		rc=$?
+		expect "[ $rc = 0 ] && grep -q '^check_syscalls: ok' $WORK/pie-sys.txt" "the app's PIE of the last make ps5: no function of libc.a(syscalls.o)"
+	fi
+else
+	echo "  (skipped: build/app/fceumm-pie.elf or the SDK isn't there -- make ps5 first)"
+fi
+if [ -d "$SDKLIB" ] && command -v ld.lld >/dev/null && command -v clang >/dev/null; then
+	mkdir -p "$WORK/imp"
+	printf 'int statfs(const char*, void*);\nint _start(void) { return statfs("/", 0); }\n' >"$WORK/imp/bad.c"
+	clang -fPIC -c -o "$WORK/imp/bad.o" "$WORK/imp/bad.c" &&
+		ld.lld -pie --no-dynamic-linker -e _start -o "$WORK/imp/bad.elf" "$WORK/imp/bad.o" --as-needed "$SDKLIB/libkernel.so" "$SDKLIB/libkernel_sys.so"
+	python3 tools/check_imports.py "$WORK/imp/bad.elf" "$SDKLIB" >"$WORK/imp/out.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 1 ] && grep -q 'NEEDED libkernel_sys.sprx: not a module the app may load' $WORK/imp/out.txt && grep -q 'import statfs: not in an allowed module (only in libkernel_sys.so)' $WORK/imp/out.txt" "a PIE importing statfs: refused, naming libkernel_sys"
+	for sym in __gxx_personality_v0 __dynamic_cast __cxa_get_globals; do
+		printf 'extern char %s;\nvoid* p = &%s;\nint _start(void) { return p != 0; }\n' $sym $sym >"$WORK/imp/$sym.c"
+		clang -fPIC -c -o "$WORK/imp/$sym.o" "$WORK/imp/$sym.c" &&
+			ld.lld -pie --no-dynamic-linker -e _start -o "$WORK/imp/$sym.elf" "$WORK/imp/$sym.o" --as-needed "$SDKLIB/libkernel.so" "$SDKLIB/libSceLibcInternal.so"
+		python3 tools/check_imports.py "$WORK/imp/$sym.elf" "$SDKLIB" >"$WORK/imp/$sym.txt" 2>&1
+		rc=$?
+		expect "[ $rc = 1 ] && grep -q 'import $sym: the C++ runtime .* must be the eboot.s own' $WORK/imp/$sym.txt" "a PIE importing $sym from the system: refused"
+	done
+	make -s --eval 'print-app-stubs: ; @echo $(APP_STUBS)' print-app-stubs >"$WORK/imp/stubs.txt" 2>&1
+	expect "grep -q '/libkernel.so' $WORK/imp/stubs.txt && ! grep -q 'libkernel_sys\|libkernel_web' $WORK/imp/stubs.txt" "the app's link takes no libkernel_sys / libkernel_web stub"
+	make -n -p build/app/fceumm-pie.elf 2>/dev/null | grep -A3 '^build/app/fceumm-pie.elf:' >"$WORK/imp/pie-rule.txt"
+	expect "grep -q check_imports.py $WORK/imp/pie-rule.txt && grep -q check_syscalls.py $WORK/imp/pie-rule.txt" "make ps5 runs both checks on every link of the PIE"
+	python3 tools/check_syscalls.py rsp "$SDKLIB/libc.a" "$WORK/imp/sys.rsp"
+	printf 'int link(const char*, const char*);\nint _start(void) { return link("a", "b"); }\n' >"$WORK/imp/sc-link.c"
+	clang -fPIC -c -o "$WORK/imp/sc-link.o" "$WORK/imp/sc-link.c" &&
+		ld.lld -pie --no-dynamic-linker -e _start -o "$WORK/imp/sc-link.elf" "$WORK/imp/sc-link.o" --as-needed "$SDKLIB/libkernel.so" \
+			"$SDKLIB/libc.a" @"$WORK/imp/sys.rsp" >"$WORK/imp/sc-link.trace" 2>&1
+	python3 tools/check_syscalls.py check "$WORK/imp/sc-link.trace" >"$WORK/imp/sc-link.txt" 2>&1
+	rc=$?
+	expect "[ $rc = 1 ] && grep -q 'sc-link.o calls link: a raw system call from libc.a(syscalls.o)' $WORK/imp/sc-link.txt" "a PIE calling link(): refused (taken from libc.a(syscalls.o), a raw system call)"
+else
+	echo "  (skipped: no SDK, ld.lld or clang for the checks' own tests)"
+fi
+# b. a new VERSION rebuilds what is built with it, not the core; the same one nothing
+cp -p build/defs.stamp "$WORK/defs.stamp.keep" 2>/dev/null
+make -n build/host/fceumm-ps5-host build/host/fceumm-ps5-installer VERSION=9.8.7 >"$WORK/t38-make-new.txt" 2>&1
+[ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
+make -n build/host/fceumm-ps5-host build/host/fceumm-ps5-installer >"$WORK/t38-make-same.txt" 2>&1
+[ -f "$WORK/defs.stamp.keep" ] && cp -p "$WORK/defs.stamp.keep" build/defs.stamp
+expect "grep -q 'main-boot.cpp' $WORK/t38-make-new.txt && grep -q 'installer_main.cpp' $WORK/t38-make-new.txt && grep -q 'fe_menu.cpp' $WORK/t38-make-new.txt && ! grep -q 'src/x6502.c\|src/ppu.c' $WORK/t38-make-new.txt" "a new VERSION: the objects that carry it are built again, not the core (make -n)"
+expect "! grep -q 'main-boot.cpp\|installer_main.cpp' $WORK/t38-make-same.txt" "... the same VERSION: nothing built again"
+# c. the eboot's operator new: a failed allocation is std::bad_alloc
+mkdir -p "$WORK/t38-new"
+printf '%s\n' '#include <cstdint>' '#include <cstdio>' '#include <new>' 'int main()' '{' '	int caught = 0;' \
+	'	volatile size_t huge = SIZE_MAX / 2 + 1;' \
+	'	try { void* p = ::operator new(huge); ::operator delete(p); } catch (const std::bad_alloc&) { caught++; }' \
+	'	try { char* p = new char[huge]; delete[] p; } catch (const std::bad_alloc&) { caught++; }' \
+	'	try { void* p = ::operator new(huge, std::align_val_t(64)); ::operator delete(p, std::align_val_t(64)); } catch (const std::bad_alloc&) { caught++; }' \
+	'	void* q = ::operator new(huge, std::nothrow);' '	void* r = ::operator new(16);' '	::operator delete(r);' \
+	'	std::printf("caught %d, nothrow %s\n", caught, q ? "allocated" : "null");' '	return caught == 3 && !q ? 0 : 1;' '}' \
+	>"$WORK/t38-new/main.cpp"
+g++ -std=c++20 -O1 -fno-rtti -o "$WORK/t38-new/rt" "$WORK/t38-new/main.cpp" proto/native/tooling/native/app_cpp_runtime.cpp -Wno-alloc-size-larger-than >"$WORK/t38-new/build.txt" 2>&1
+"$WORK/t38-new/rt" >"$WORK/t38-new/out.txt" 2>&1
+rc=$?
+expect "[ $rc = 0 ] && grep -q 'caught 3, nothrow null' $WORK/t38-new/out.txt" "the eboot's operator new: a failed allocation throws std::bad_alloc (new, new[], aligned), nothrow gives null (got $rc: $(head -c 80 $WORK/t38-new/out.txt))"
+# d. the start-up self-test (debug logs on)
+T=$(newroot t38-exc)
+rc=$(run "$T" "0:0;30:$OPTIONS;32:0;40:$CROSS;42:0" "")
+expect "grep -q \"\[boot\] exceptions: ok (our throw caught, libc++'s std::invalid_argument caught, operator new's std::bad_alloc not tried on the host)\" $T/root/logs/boot.log" "the start-up self-test: exceptions: ok"
 nosan "$T"
 fi
 

@@ -13,6 +13,9 @@
 #include "fe_text.h"
 
 #include "OrbisPaths.h"
+#include "ProsperoJailbreak.h"
+#include "ProsperoPlaceText.h"
+#include "ProsperoUpdate.h"
 #include "ProsperoCrt.h"
 #include "ProsperoInput.h"
 #include "ProsperoSce.h"
@@ -25,6 +28,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <unistd.h>
 #include <vector>
 
 namespace fe
@@ -249,6 +253,7 @@ enum SettingRow
 	H_SYSTEM,
 	S_LANGUAGE,
 	S_DEBUGLOGS,
+	S_UPDATES,
 	S_COUNT
 };
 
@@ -265,6 +270,78 @@ std::string NetworkSummary()
 	for (const NetfsShareInfo& i : shares)
 		ready += i.state == NetfsState::Ready;
 	return Fmt(T("%d of %d connected"), ready, int(shares.size()));
+}
+
+// ---- updates (ProsperoUpdate.h): the helper checks, downloads and installs; this screen shows it ----------------
+struct UpdateView
+{
+	update::Status st;
+	bool helper = false;
+	double polled = -1;
+};
+UpdateView g_upd;
+
+void PollUpdate(bool force)
+{
+	if (!force && Now() - g_upd.polled < 0.5)
+		return;
+	g_upd.polled = Now();
+	std::string reply;
+	g_upd.helper = jailbreak::UpdateRequest("status", reply) && update::Decode(reply, g_upd.st);
+}
+
+std::string UpdateValue()
+{
+	char buf[96];
+	if (!g_upd.helper)
+		return "Needs the helper";
+	const update::Status& st = g_upd.st;
+	switch (st.phase)
+	{
+		case update::Phase::Checking: return "Checking...";
+		case update::Phase::UpToDate: return "Up to date";
+		case update::Phase::Available:
+			snprintf(buf, sizeof(buf), T("Install %s (%.1f MB)"), st.latest.c_str(), st.size / 1048576.0);
+			return buf;
+		case update::Phase::Downloading:
+			snprintf(buf, sizeof(buf), T("Downloading %d%%"), st.total ? int(st.done * 100 / st.total) : 0);
+			return buf;
+		case update::Phase::Installing:
+			snprintf(buf, sizeof(buf), T("Installing %d/%d"), int(st.done), int(st.total));
+			return buf;
+		case update::Phase::Done: return "Installed: restart";
+		case update::Phase::Failed: return "Failed: try again";
+		default: return "Check now";
+	}
+}
+
+void UpdateAction()
+{
+	std::string reply;
+	switch (g_upd.st.phase)
+	{
+		case update::Phase::Available: jailbreak::UpdateRequest("install", reply); break;
+		case update::Phase::Checking:
+		case update::Phase::Downloading:
+		case update::Phase::Installing: break;
+		case update::Phase::Done:
+		{
+			// the new build, opened in this one's place
+			const char* path = "/data/homebrew/" FCEUMM_TITLE_ID "/eboot.bin";
+			OrbisLog("[update] restarting %s", path);
+			Config().Save();
+			OrbisLogClose();
+			const int rc = sceSystemServiceLoadExec(path, nullptr);
+			if (rc == 0)
+				for (int i = 0; i < 100; i++)
+					usleep(100 * 1000);
+			OrbisLogOpen("boot-after-update");
+			OrbisLog("[update] sceSystemServiceLoadExec(%s) -> %x: close the app and open it again", path, unsigned(rc));
+			break;
+		}
+		default: jailbreak::UpdateRequest("check", reply); break;
+	}
+	PollUpdate(true);
 }
 
 Row SettingRowFor(int s)
@@ -314,6 +391,7 @@ Row SettingRowFor(int s)
 		case H_SYSTEM: return {"SYSTEM", "", true, true};
 		case S_LANGUAGE: return {"Language", LanguageName(c.language)};
 		case S_DEBUGLOGS: return {"Debug logs", OnOff(c.debug_logs)};
+		case S_UPDATES: return {Fmt(T("Updates (this is %s)"), FCEUMM_PS5_VERSION), UpdateValue()};
 		default:
 			if (s >= S_BTN_FIRST && s <= S_BTN_LAST)
 			{
@@ -410,15 +488,86 @@ void Background(bool over_game)
 		Header("Settings");
 }
 
+namespace
+{
+// The helper's reason for an update that can't be installed, in the interface's language when it is one of
+// ProsperoPlaceText.h's (the folder taken out of the English text and put into the translation); any other as it came.
+std::string UpdateErrorText(const std::string& e)
+{
+	for (const char* t : placetext::kAll)
+	{
+		const std::string tmpl = t;
+		const size_t at = tmpl.find("%s");
+		const std::string head = tmpl.substr(0, at), tail = tmpl.substr(at + 2);
+		if (e.size() > head.size() + tail.size() && e.compare(0, head.size(), head) == 0 &&
+			e.compare(e.size() - tail.size(), tail.size(), tail) == 0)
+		{
+			char buf[1024];
+			snprintf(buf, sizeof(buf), T(t), e.substr(head.size(), e.size() - head.size() - tail.size()).c_str());
+			return buf;
+		}
+	}
+	return e;
+}
+
+// The text in at most `lines` lines of max_px, cut between words; what doesn't fit ends the last line with "...".
+std::vector<std::string> WrapText(const std::string& text, int scale, int max_px, int lines)
+{
+	std::vector<std::string> out;
+	size_t at = 0;
+	while (at < text.size() && int(out.size()) < lines)
+	{
+		while (at < text.size() && text[at] == ' ')
+			at++;
+		if (int(out.size()) == lines - 1)
+		{
+			out.push_back(FitText(text.substr(at), scale, max_px));
+			break;
+		}
+		size_t end = at, best = std::string::npos;
+		while (end <= text.size())
+		{
+			const size_t sp = text.find(' ', end);
+			const size_t stop = sp == std::string::npos ? text.size() : sp;
+			if (TextWidth(text.substr(at, stop - at).c_str(), scale) > max_px)
+				break;
+			best = stop;
+			if (sp == std::string::npos)
+				break;
+			end = sp + 1;
+		}
+		if (best == std::string::npos) // one word longer than the line
+		{
+			out.push_back(FitText(text.substr(at), scale, max_px));
+			break;
+		}
+		out.push_back(text.substr(at, best - at));
+		at = best;
+	}
+	return out;
+}
+} // namespace
+
 void SettingsScreen(bool over_game)
 {
 	NavReader nav;
 	int sel = S_SHADER;
 	for (;;)
 	{
+		PollUpdate(false);
 		const std::vector<Row> rows = SettingRows();
 		Background(over_game);
 		DrawOptionBox("Settings", rows, sel, over_game);
+		if (sel == S_UPDATES && g_upd.st.phase == update::Phase::Failed && !g_upd.st.error.empty())
+		{
+			// two lines (the folder-place reasons are about 1950 px at this size)
+			const std::vector<std::string> lines = WrapText(UpdateErrorText(g_upd.st.error), 2, W - 160, 2);
+			ps5video::FillRect(0, H - 148, W, 68, kBg); // over the box's bottom edge, which the two lines would cross
+			for (size_t i = 0; i < lines.size(); i++)
+				DrawText(80, H - 142 + int(i) * 30, lines[i].c_str(), 2, kAccent);
+		}
+		else if (sel == S_UPDATES && !g_upd.helper)
+			DrawText(80, H - 130, T("Updates are downloaded by the helper: send the payload, then open Settings again."), 2, kDim);
 		if (!over_game)
 			Footer(std::string(icon::Cross) + " " + T("Change") + "     " + icon::DpadLeftRight + " " + T("Adjust") + "     " + icon::Circle + " " + T("Back"));
 		Present();
@@ -429,7 +578,12 @@ void SettingsScreen(bool over_game)
 			if (sel == S_NETWORK && !rows[size_t(sel)].enabled)
 				sel = Step(sel, n.up ? -1 : 1, rows); // over a game the Network shares row is passed over
 		}
-		if (sel == S_NETWORK)
+		if (sel == S_UPDATES)
+		{
+			if (n.ok)
+				UpdateAction();
+		}
+		else if (sel == S_NETWORK)
 		{
 			if (n.ok && rows[size_t(sel)].enabled)
 			{

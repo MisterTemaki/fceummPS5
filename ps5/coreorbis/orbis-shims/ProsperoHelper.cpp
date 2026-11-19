@@ -13,7 +13,11 @@
 #include "ProsperoJailbreak.h"
 
 #include "OrbisPaths.h"
+#include "ProsperoAppPlace.h"
+#include "ProsperoNotify.h"
+#include "ProsperoUpdate.h"
 #include "fe_coverworker.h"
+#include "fe_tlshttp.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -32,6 +36,10 @@
 
 #ifndef FCEUMM_TITLE_ID
 #define FCEUMM_TITLE_ID "PPSA99013"
+#endif
+
+#ifndef FCEUMM_UPDATE_REPO
+#define FCEUMM_UPDATE_REPO "MisterTemaki/fceummPS5"
 #endif
 
 #ifdef __PROSPERO__
@@ -213,6 +221,72 @@ std::string ReadWantedList()
 }
 } // namespace
 
+namespace
+{
+// The app's updates (ProsperoUpdate.h): this helper downloads and installs them, with its own HTTPS (the cover
+// worker has another connection) and the right to write the app folder.
+fe::TlsHttp* g_update_http = nullptr;
+
+std::string EnvOr(const char* name, const char* fallback)
+{
+	const char* v = getenv(name);
+	return v && *v ? v : fallback;
+}
+
+// Where the update goes (Media Player Classic PS5 1.5's ShadowMount+ fix, as Stella PS5, Snes9x PS5 2.10 and FBNeo PS5
+// 2.2 have it; ProsperoAppPlace.h): the folder the console runs the app from -- ShadowMount+'s mount of it on
+// /system_ex/app/<TITLE_ID>, written through the mount --, else /data/homebrew/<TITLE_ID>. The first updaters always
+// wrote /data/homebrew/<TITLE_ID>: for an app that ShadowMount+ runs from a USB or extended drive (or another folder)
+// that made a second copy there and left the copy the console runs as it was. Looked up again before each check and
+// install, on the updater's thread (it reads and writes in the app's folder, which may be on a slow drive -- not in the
+// request the app waits 5 s for): the helper may have started (autoloaded) before ShadowMount+ mounted the app.
+void RefreshPlace(bool log)
+{
+	const AppPlace p = FindAppPlace(FCEUMM_TITLE_ID, EnvOr("FCEUMM_PS5_HOMEBREW", "/data/homebrew") + "/" FCEUMM_TITLE_ID);
+	if (log)
+		OrbisLog("[update] %s", p.log.c_str());
+	update::SetPlace(p.dir, p.writable ? std::string() : p.reason);
+}
+
+void InitUpdater()
+{
+	update::Config c;
+	c.repo = FCEUMM_UPDATE_REPO;
+	c.title_id = FCEUMM_TITLE_ID;
+	c.version = FCEUMM_PS5_VERSION;
+	c.app_name = "NES FCEUmm PS5";
+	c.app_dir = EnvOr("FCEUMM_PS5_HOMEBREW", "/data/homebrew") + "/" FCEUMM_TITLE_ID; // RefreshPlace sets it
+	c.appmeta_dir = EnvOr("FCEUMM_PS5_APPMETA", "/user/appmeta") + "/" FCEUMM_TITLE_ID;
+	c.api_url = EnvOr("FCEUMM_UPDATE_API", "");
+	g_update_http = new fe::TlsHttp;
+	update::Init(c, [](const std::string& url, std::vector<uint8_t>& out, size_t max, std::atomic<size_t>* progress) {
+		g_update_http->SetProgress(progress);
+		const int r = g_update_http->Get(url, out, max);
+		g_update_http->SetProgress(nullptr);
+		return r;
+	});
+	update::SetOnNewer([](const std::string& v) {
+		ProsperoNotify("NES FCEUmm PS5 %s is available: Settings, SYSTEM, Updates.", v.c_str());
+		ProsperoNotifyFlush();
+	});
+	update::SetPlaceLookup([] { RefreshPlace(true); });
+}
+
+// One updater request from the app: "status", "check", "autocheck", "install", "ack". The answer: the status.
+std::string UpdateCommand(const char* what)
+{
+	if (!strcmp(what, "check"))
+		update::StartCheck(false);
+	else if (!strcmp(what, "autocheck"))
+		update::StartCheck(true);
+	else if (!strcmp(what, "install"))
+		update::StartInstall();
+	else if (!strcmp(what, "ack"))
+		update::Acknowledge();
+	return update::Encode(update::GetStatus());
+}
+} // namespace
+
 bool ServeHelper(void (*on_ready)())
 {
 	signal(SIGPIPE, SIG_IGN);
@@ -245,6 +319,7 @@ bool ServeHelper(void (*on_ready)())
 		on_ready();
 	// the covers the app wants, downloaded while it runs (fe_coverworker.h)
 	fe::StartCoverWorker();
+	InitUpdater();
 	for (;;)
 	{
 		const int c = accept(srv, nullptr, nullptr);
@@ -281,6 +356,30 @@ bool ServeHelper(void (*on_ready)())
 			memset(req.msg1, 0, sizeof(req.msg1));
 			snprintf(req.msg1, sizeof(req.msg1), "%s", ok ? "ok" : why.c_str());
 			OrbisLog("[helper] pid %d: %s", req.pid, req.msg1);
+			SendUntil(c, &req, sizeof(req), deadline);
+		}
+		else if (got == sizeof(req) && req.magic == kMagic && req.cmd == kCmdUpdate)
+		{
+			// only for our own app (the title decides, as for the jailbreak); it can only fetch our releases
+			req.msg1[sizeof(req.msg1) - 1] = 0;
+			const std::string title = TitleOf(req.pid);
+			if (title != FCEUMM_TITLE_ID)
+			{
+				req.ret = -1;
+				snprintf(req.msg1, sizeof(req.msg1), "%s", "not our app");
+			}
+			else
+			{
+				const std::string what = req.msg1;
+				req.msg2[sizeof(req.msg2) - 1] = 0;
+				update::SetCurrentVersion(req.msg2);
+				const std::string answer = UpdateCommand(what.c_str());
+				if (what != "status")
+					OrbisLog("[helper] pid %d: update %s -> %s", req.pid, what.c_str(), answer.c_str());
+				req.ret = 0;
+				memset(req.msg1, 0, sizeof(req.msg1));
+				snprintf(req.msg1, sizeof(req.msg1), "%s", answer.c_str());
+			}
 			SendUntil(c, &req, sizeof(req), deadline);
 		}
 		else
