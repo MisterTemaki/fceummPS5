@@ -30,7 +30,7 @@ one is [README-FCEUmm.md](README-FCEUmm.md)). The core (`src/`: the CPU, PPU, AP
 libretro port (`src/drivers/libretro/libretro.c`) are compiled as they are. The frontend drives the core through its
 libretro interface and plays the part RetroArch plays on a PC.
 
-> **Status (1.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 529 host tests,
+> **Status (1.2):** builds with the ps5-payload-dev SDK into a signed native app, and passes 546 host tests,
 > which run the same code (the FCEUmm core included) on Linux with the PS5 calls simulated: a hand-assembled NES test
 > program is played through the whole chain -- the shelf, the pad, the core, the video and sound output -- as an
 > NES 2.0, iNES 1.0 and UNIF file, in NTSC and PAL, from a zip and a `.7z` and as a Disk System image; games are
@@ -632,7 +632,7 @@ make ps5 -j$(nproc)              # build/ps5/NESFCEUmmPS5.elf (installer + helpe
 make send PS5_HOST=192.168.0.10  # sends it to elfldr (port 9021)
 make dist                        # build/dist/NESFCEUmmPS5-v<version>.elf, the app's update zip, the source zip
 make app                         # only build/app/PPSA99013/, to copy by hand
-make test                        # Linux builds (app, installer, helper) + 529 host tests (ASan/UBSan), with netfs's,
+make test                        # Linux builds (app, installer, helper) + 546 host tests (ASan/UBSan), with netfs's,
                                  # the NFS backend's, the tabs' and the 7z reader's unit tests (and the SMB backend's
                                  # against a real Samba, skipped without smbd and pdbedit)
 ```
